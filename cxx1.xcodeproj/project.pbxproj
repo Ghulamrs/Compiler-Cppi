@@ -90,7 +90,7 @@
 		7E83085E99FDE803DBFCC2E4 /* src/backend/X86_64Windows.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = src/backend/X86_64Windows.h; sourceTree = "<group>"; };
 		84ED2FD0C426B783FCAFBD3C /* src/parser/Parser.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = src/parser/Parser.h; sourceTree = "<group>"; };
 		3A1D698D640E69C185AE0DD6 /* src/parser/ParserInternal.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = src/parser/ParserInternal.h; sourceTree = "<group>"; };
-		F9BB07A4187E2CF6D0A9D200 /* cxx1.exe */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cxx1.exe; sourceTree = BUILT_PRODUCTS_DIR; };
+		F9BB07A4187E2CF6D0A9D200 /* cxx1i.exe */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cxx1i.exe; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -172,7 +172,7 @@
 		DDBA713113D88A373E32DFC8 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				F9BB07A4187E2CF6D0A9D200 /* cxx1.exe */,
+				F9BB07A4187E2CF6D0A9D200 /* cxx1i.exe */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -180,7 +180,7 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		18A333A5AFDA179A6C4A9DFF /* cxx1.exe */ = {
+		18A333A5AFDA179A6C4A9DFF /* cxx1i.exe */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = AA219579D3BE46B5AF3F6988;
 			buildPhases = (
@@ -192,9 +192,9 @@
 			);
 			dependencies = (
 			);
-			name = cxx1.exe;
-			productName = cxx1.exe;
-			productReference = F9BB07A4187E2CF6D0A9D200 /* cxx1.exe */;
+			name = cxx1i.exe;
+			productName = cxx1i.exe;
+			productReference = F9BB07A4187E2CF6D0A9D200 /* cxx1i.exe */;
 			productType = "com.apple.product-type.tool";
 		};
 /* End PBXNativeTarget section */
@@ -218,7 +218,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				18A333A5AFDA179A6C4A9DFF /* cxx1.exe */,
+				18A333A5AFDA179A6C4A9DFF /* cxx1i.exe */,
 			);
 		};
 /* End PBXProject section */
@@ -295,7 +295,7 @@
 				GCC_TREAT_WARNINGS_AS_ERRORS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = NO;
 				MACOSX_DEPLOYMENT_TARGET = 10.15;
-				PRODUCT_NAME = cxx1.exe;
+				PRODUCT_NAME = cxx1i.exe;
 				SDKROOT = macosx;
 				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/src";
 				WARNING_CFLAGS = (
@@ -322,7 +322,7 @@
 				GCC_TREAT_WARNINGS_AS_ERRORS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = NO;
 				MACOSX_DEPLOYMENT_TARGET = 10.15;
-				PRODUCT_NAME = cxx1.exe;
+				PRODUCT_NAME = cxx1i.exe;
 				SDKROOT = macosx;
 				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/src";
 				WARNING_CFLAGS = (
@@ -349,7 +349,7 @@
 				GCC_TREAT_WARNINGS_AS_ERRORS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = NO;
 				MACOSX_DEPLOYMENT_TARGET = 10.15;
-				PRODUCT_NAME = cxx1.exe;
+				PRODUCT_NAME = cxx1i.exe;
 				SDKROOT = macosx;
 				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/src";
 				WARNING_CFLAGS = (
@@ -376,7 +376,7 @@
 				GCC_TREAT_WARNINGS_AS_ERRORS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = NO;
 				MACOSX_DEPLOYMENT_TARGET = 10.15;
-				PRODUCT_NAME = cxx1.exe;
+				PRODUCT_NAME = cxx1i.exe;
 				SDKROOT = macosx;
 				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/src";
 				WARNING_CFLAGS = (
