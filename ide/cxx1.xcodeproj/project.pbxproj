@@ -279,11 +279,11 @@
 					"-pedantic",
 				);
 				GCC_PREPROCESSOR_DEFINITIONS = (
-					"CXX1_INCLUDE_DIR=\\\"/Users/g.r.akhtar/Documents/Claude/C++/lib\\\"",
-					"CXX1_CXX_INCLUDE_DIR=\\\"/Users/g.r.akhtar/Documents/Claude/C++/include\\\"",
+					"CXX1_INCLUDE_DIR=\\\"$(SRCROOT)/../lib\\\"",
+					"CXX1_CXX_INCLUDE_DIR=\\\"$(SRCROOT)/../include\\\"",
 				);
 				PRODUCT_NAME = "cxx1";
-				HEADER_SEARCH_PATHS = "/Users/g.r.akhtar/Documents/Claude/C++/src";
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/../src";
 				GCC_OPTIMIZATION_LEVEL = 0;
 			};
 			name = Debug;
@@ -305,11 +305,11 @@
 					"-pedantic",
 				);
 				GCC_PREPROCESSOR_DEFINITIONS = (
-					"CXX1_INCLUDE_DIR=\\\"/Users/g.r.akhtar/Documents/Claude/C++/lib\\\"",
-					"CXX1_CXX_INCLUDE_DIR=\\\"/Users/g.r.akhtar/Documents/Claude/C++/include\\\"",
+					"CXX1_INCLUDE_DIR=\\\"$(SRCROOT)/../lib\\\"",
+					"CXX1_CXX_INCLUDE_DIR=\\\"$(SRCROOT)/../include\\\"",
 				);
 				PRODUCT_NAME = "cxx1";
-				HEADER_SEARCH_PATHS = "/Users/g.r.akhtar/Documents/Claude/C++/src";
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/../src";
 				GCC_OPTIMIZATION_LEVEL = 2;
 			};
 			name = Release;
