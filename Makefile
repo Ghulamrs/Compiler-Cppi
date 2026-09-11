@@ -88,7 +88,7 @@ BINDIR  ?= .
 # cxx1.exe on every machine, not only Windows. The programs in this family -
 # RStudio, cc1, shc and this one - carry one name each wherever they are, and a
 # suffix that changes by platform is one more thing a script has to know.
-TARGET   = $(BINDIR)/cxx1.exe
+TARGET   = $(BINDIR)/cxx1i.exe
 
 .PHONY: all test golden corpus open comments clean help
 
