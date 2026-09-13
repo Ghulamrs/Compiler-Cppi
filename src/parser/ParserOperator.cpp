@@ -52,8 +52,7 @@ ExprPtr Parser::castExpr() {
 ExprPtr Parser::boundMemberPointer(const Type *cls, const Signature &f,
                                    std::size_t pos) {
     const Type *fn = types_.functionType(f.returns, f.params, f.variadic);
-    const Type *mp = types_.memberFunctionPointerTo(cls, fn,
-                                                    target_.microsoftNames());
+    const Type *mp = types_.memberFunctionPointerTo(cls, fn, target_);
     const int slot = allocateFrameSlot(mp);
     const Type *word = types_.pointerTo(types_.get(Kind::Void));
 

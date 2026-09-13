@@ -438,7 +438,7 @@ public:
     const Type *pointerTo(const Type *t);
     const Type *memberPointerTo(const Type *cls, const Type *member);
     const Type *memberFunctionPointerTo(const Type *cls, const Type *fn,
-                                        bool microsoft);
+                                        const Target &t);
     const Type *referenceTo(const Type *t);
     const Type *rvalueReferenceTo(const Type *t);
     const Type *arrayOf(const Type *t, long long length);

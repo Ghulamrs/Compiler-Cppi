@@ -17,9 +17,9 @@ const Type *TypeTable::get(Kind k) const {
 int Type::size(const Target &t) const {
     if (unqual_ != nullptr) return unqual_->size(t);
     // **A data member pointer is an offset, and the two ABIs keep it in
-    // different widths** - Itanium a ptrdiff_t and Microsoft an int, for a
-    // class with single inheritance. Measured with clang for both targets.
-    if (kind_ == Kind::MemberPointer) return t.microsoftNames() ? 4 : 8;
+    // different widths** - Itanium a ptrdiff_t, which is the pointer's width
+    // (four on the C6000), and Microsoft an int, for single inheritance.
+    if (kind_ == Kind::MemberPointer) return t.microsoftNames() ? 4 : t.sizeOf(Kind::Pointer);
     if (isReference()) return pointee_->size(t);
     // **In `long long`, because the multiply itself was the bug.** Two int
     // operands overflowed for `static int a[600000000]` and the backend was
@@ -35,7 +35,7 @@ int Type::size(const Target &t) const {
 
 int Type::align(const Target &t) const {
     if (unqual_ != nullptr) return unqual_->align(t);
-    if (kind_ == Kind::MemberPointer) return t.microsoftNames() ? 4 : 8;
+    if (kind_ == Kind::MemberPointer) return t.microsoftNames() ? 4 : t.alignOf(Kind::Pointer);
     if (isReference()) return pointee_->align(t);
     if (kind_ == Kind::Array) return pointee_->align(t);
     if (kind_ == Kind::Struct || kind_ == Kind::Union) return align_;
@@ -178,7 +178,12 @@ const Type *TypeTable::memberPointerTo(const Type *cls, const Type *member) {
 // backend already knows how to copy, pass and return one. Its members are what
 // the ABI keeps: a code address, and on Itanium a `this` adjustment beside it.
 const Type *TypeTable::memberFunctionPointerTo(const Type *cls, const Type *fn,
-                                               bool microsoft) {
+                                               const Target &t) {
+    // Itanium's pair is two pointer-widths - the adjustment a ptrdiff_t, so
+    // four bytes on the C6000 and eight on the 64-bit targets; Microsoft's
+    // single-inheritance form is one code pointer.
+    const bool microsoft = t.microsoftNames();
+    const int word = t.sizeOf(Kind::Pointer);
     for (Type *d : derived_)
         if (!d->isConst() && d->isMemberFunctionPointer() &&
             d->pointee() == fn && d->enclosing() == cls)
@@ -186,13 +191,13 @@ const Type *TypeTable::memberFunctionPointerTo(const Type *cls, const Type *fn,
     Type *made = new Type(Kind::Struct, fn, -1);
     made->setEnclosing(cls);
     made->setMemberFunctionPointer();
-    const Type *word = pointerTo(get(Kind::Void));
+    const Type *code = pointerTo(get(Kind::Void));
     std::vector<Member> ms;
-    ms.push_back(Member{ "$fn", word, 0, 0, 0, Access::Public });
+    ms.push_back(Member{ "$fn", code, 0, 0, 0, Access::Public });
     if (!microsoft)
-        ms.push_back(Member{ "$adj", get(Kind::LongLong), 8, 0, 0,
-                             Access::Public });
-    made->complete(ms, microsoft ? 8 : 16, 8);
+        ms.push_back(Member{ "$adj", get(word == 8 ? Kind::LongLong : Kind::Int),
+                             word, 0, 0, Access::Public });
+    made->complete(ms, microsoft ? word : 2 * word, word);
     derived_.push_back(made);
     return derived_.back();
 }

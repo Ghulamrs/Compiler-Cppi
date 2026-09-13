@@ -1934,8 +1934,7 @@ Parser::Declared Parser::declarator(const Type *base, bool nameOptional,
             // The base says which of the two this is, its function type already built.
             const Type *mp;
             if (base->isFunction()) {
-                mp = types_.memberFunctionPointerTo(cls, base,
-                                                    target_.microsoftNames());
+                mp = types_.memberFunctionPointerTo(cls, base, target_);
             } else {
                 mp = types_.memberPointerTo(cls, base);
             }
