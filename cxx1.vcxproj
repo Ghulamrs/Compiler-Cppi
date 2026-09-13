@@ -12,8 +12,8 @@
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
-    <ProjectGuid>{96BFA646-92F9-AE58-884D-3665B748CC59}</ProjectGuid>
-    <RootNamespace>cxx1</RootNamespace>
+    <ProjectGuid>{5F32672A-8EBA-84FB-FFC7-501FA81FD6A3}</ProjectGuid>
+    <RootNamespace>cxx1i</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -80,6 +80,7 @@
     <ClCompile Include="src\backend\Dwarf.cpp" />
     <ClCompile Include="src\backend\Masm.cpp" />
     <ClCompile Include="src\backend\Spelling.cpp" />
+    <ClCompile Include="src\backend\Tms6747.cpp" />
     <ClCompile Include="src\backend\Walker.cpp" />
     <ClCompile Include="src\backend\X86_64Linux.cpp" />
     <ClCompile Include="src\backend\X86_64Windows.cpp" />
