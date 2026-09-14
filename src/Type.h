@@ -200,7 +200,7 @@ public:
     // are kept because the tag - "Box<int,3>" - is the parser's key and not
     // anything a linker has ever seen.
     const std::string &enumTag() const { return tag_; }
-    bool isEnumeration() const { return kind_ == Kind::Int && !tag_.empty(); }
+    bool isEnumeration() const { return isInteger() && !tag_.empty(); }
     bool isSpecialization() const { return !cls().templateName_.empty(); }
     const std::string &templateName() const { return cls().templateName_; }
     const std::vector<TemplateArg> &templateArgs() const { return cls().templateArgs_; }
@@ -454,7 +454,7 @@ public:
 
     Type *structType(Kind kind, const std::string &tag);
     // **An enumeration, which is an `int` that remembers its name.**
-    Type *enumType(const std::string &tag);
+    Type *enumType(const std::string &tag, Kind underlying = Kind::Int);
     Type *anonymousStruct(Kind kind);
 
     const Type *voidType() const   { return get(Kind::Void); }
@@ -481,6 +481,8 @@ public:
 
     // Which ABI spells a C++ name, which is a property of the platform in the same way that the width of a long is.
     virtual bool microsoftNames() const = 0;
+    // What the stack pointer is kept aligned to: 16 on the hosts, 8 on the C6000.
+    virtual int stackAlign() const { return 16; }
 
     virtual const char *name() const = 0;
 };
