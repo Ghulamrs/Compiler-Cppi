@@ -50,20 +50,32 @@ ExprPtr Parser::castExpr() {
 // function's address, and on Itanium a `this` adjustment which is zero for every
 // case here. Shaped as classTemporary's is, a dereference of a comma.
 ExprPtr Parser::boundMemberPointer(const Type *cls, const Signature &f,
-                                   std::size_t pos) {
+                                   std::size_t pos, long long vtableCode,
+                                   const std::string &code) {
     const Type *fn = types_.functionType(f.returns, f.params, f.variadic);
     const Type *mp = types_.memberFunctionPointerTo(cls, fn, target_);
     const int slot = allocateFrameSlot(mp);
     const Type *word = types_.pointerTo(types_.get(Kind::Void));
 
-    Var *code = Var::global(f.name);
-    code->setSymbol(f.symbol);
-    ExprPtr target(code);
-    target->setType(fn);
-    ExprPtr addr(new Unary('&', std::move(target)));
-    addr->setType(types_.pointerTo(fn));
-    ExprPtr asWord(new Cast(word, std::move(addr)));
-    asWord->setType(word);
+    ExprPtr asWord;
+    if (vtableCode != 0) {
+        // The slot's offset with the low bit set, which is what the call
+        // tests for; no function is named at all.
+        asWord.reset(new Num(vtableCode));
+        asWord->setType(ptrdiffType());
+        ExprPtr made(new Cast(word, std::move(asWord)));
+        made->setType(word);
+        asWord = std::move(made);
+    } else {
+        Var *fnVar = Var::global(f.name);
+        fnVar->setSymbol(code.empty() ? f.symbol : code);
+        ExprPtr target(fnVar);
+        target->setType(fn);
+        ExprPtr addr(new Unary('&', std::move(target)));
+        addr->setType(types_.pointerTo(fn));
+        asWord.reset(new Cast(word, std::move(addr)));
+        asWord->setType(word);
+    }
 
     ExprPtr obj(Var::local("$mfp", slot));
     obj->setType(mp);
@@ -108,13 +120,79 @@ ExprPtr Parser::applyMemberPointer(ExprPtr addr, ExprPtr mp, std::size_t pos,
     // leave the object's address for the call to pick up.
     if (mpt->isMemberFunctionPointer()) {
         const Member *slot = mpt->findMember("$fn");
-        ExprPtr held(new MemberAccess(std::move(mp), "$fn", slot->offset, 0, 0));
         const Type *fnPtr = types_.pointerTo(mpt->pointee());
-        held->setType(fnPtr);
-        boundThis_ = std::move(addr);
         boundFn_ = mpt->pointee();
         boundAt_ = pos;
-        return held;
+        if (target_.microsoftNames()) {
+            // One code pointer, a vcall thunk standing in for a virtual one.
+            ExprPtr held(new MemberAccess(std::move(mp), "$fn", slot->offset, 0, 0));
+            held->setType(fnPtr);
+            boundThis_ = std::move(addr);
+            return held;
+        }
+        // **Itanium decides at the call**: the pair copied to a slot, the
+        // object moved by its adjustment, and a set low bit in the code word
+        // means "vtable offset + 1", read through the vptr; clear, an address.
+        const Type *thisType = addr->type();
+        const Type *chars = types_.pointerTo(types_.get(Kind::Char));
+        const Type *diff = ptrdiffType();
+        const Member *adjSlot = mpt->findMember("$adj");
+        const int pairSlot = allocateFrameSlot(mpt);
+        const int thisSlot = allocateFrameSlot(chars);
+        const std::string pairName = ".mp" + std::to_string(refTemps_++);
+        const std::string thisName = ".mt" + std::to_string(refTemps_++);
+        auto pair = [&]() { ExprPtr e(Var::local(pairName, pairSlot)); e->setType(mpt); return e; };
+        auto pairField = [&](const Member *m) {
+            ExprPtr e(new MemberAccess(pair(), m->name, m->offset, 0, 0));
+            e->setType(m->type); return e;
+        };
+        auto movedThis = [&]() { ExprPtr e(Var::local(thisName, thisSlot)); e->setType(chars); return e; };
+
+        ExprPtr keepPair(new Assign(pair(), std::move(mp)));
+        keepPair->setType(mpt);
+        ExprPtr asChars(new Cast(chars, std::move(addr)));
+        asChars->setType(chars);
+        ExprPtr moved(new Binary(BinOp::Add, std::move(asChars), pairField(adjSlot)));
+        moved->setType(chars);
+        ExprPtr keepThis(new Assign(movedThis(), std::move(moved)));
+        keepThis->setType(chars);
+
+        ExprPtr codeWord(new Cast(diff, pairField(slot)));
+        codeWord->setType(diff);
+        ExprPtr one(new Num(1LL));
+        one->setType(diff);
+        ExprPtr low(new Binary(BinOp::BitAnd, std::move(codeWord), std::move(one)));
+        low->setType(diff);
+
+        ExprPtr vptrAt(new Cast(types_.pointerTo(chars), movedThis()));
+        vptrAt->setType(types_.pointerTo(chars));
+        ExprPtr vptr(new Unary('*', std::move(vptrAt)));
+        vptr->setType(chars);
+        ExprPtr codeAgain(new Cast(diff, pairField(slot)));
+        codeAgain->setType(diff);
+        ExprPtr minusOne(new Num(-1LL));
+        minusOne->setType(diff);
+        ExprPtr offset(new Binary(BinOp::Add, std::move(codeAgain), std::move(minusOne)));
+        offset->setType(diff);
+        ExprPtr entryAt(new Binary(BinOp::Add, std::move(vptr), std::move(offset)));
+        entryAt->setType(chars);
+        ExprPtr entryPtr(new Cast(types_.pointerTo(fnPtr), std::move(entryAt)));
+        entryPtr->setType(types_.pointerTo(fnPtr));
+        ExprPtr fromTable(new Unary('*', std::move(entryPtr)));
+        fromTable->setType(fnPtr);
+        ExprPtr direct(new Cast(fnPtr, pairField(slot)));
+        direct->setType(fnPtr);
+        ExprPtr chosen(new Conditional(std::move(low), std::move(fromTable), std::move(direct)));
+        chosen->setType(fnPtr);
+
+        ExprPtr seq(new Comma(std::move(keepPair), std::move(keepThis)));
+        seq->setType(chars);
+        ExprPtr callee(new Comma(std::move(seq), std::move(chosen)));
+        callee->setType(fnPtr);
+        ExprPtr self(new Cast(thisType, movedThis()));
+        self->setType(thisType);
+        boundThis_ = std::move(self);
+        return callee;
     }
     if (!mpt->isMemberPointer())
         src_.fail(pos, "the right of '.*' has to be a pointer to a member, and "
