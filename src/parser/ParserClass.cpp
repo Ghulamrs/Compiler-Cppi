@@ -859,6 +859,7 @@ StmtPtr Parser::cleanupPad(std::size_t from, std::size_t to, int pointerSlot,
 
     Block *b = new Block(std::move(steps));
     b->setScope(-1);
+    b->setUnwindCleanup();
     return StmtPtr(b);
 }
 

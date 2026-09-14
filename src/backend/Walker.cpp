@@ -65,7 +65,21 @@ void Walker::closeBlock(int scope) {
 void Walker::visit(const Block &n) {
     markLine(n);
     openBlock(n.scope());
+    // A pad's own code, under a row of its own where the target wants one:
+    // a destructor that throws while the exception unwinds terminates.
+    const bool scope = n.unwindCleanup() && terminateScopes();
+    const int id = scope ? nextLabel() : 0;
+    if (scope) defineLabel(label("cleanup", id));
     for (const StmtPtr &s : n.body()) s->accept(*this);
+    if (scope) {
+        defineLabel(label("cleanupend", id));
+        CallSite row;
+        row.begin = label("cleanup", id);
+        row.end = label("cleanupend", id);
+        row.terminate = true;
+        row.at = ++labelOrder_;
+        callSites_.push_back(row);
+    }
     closeBlock(n.scope());
 }
 

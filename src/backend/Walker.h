@@ -83,6 +83,7 @@ protected:
         // Parallel to `types`: the selector index the parser gave each one.
         std::vector<int> indices;
         bool cleanup = false;   // a trailing action record with filter 0
+        bool terminate = false; // a throw out of here ends the program: a pad's own code
         // Where this segment begins, counted in the order labels are defined -
         // which is address order, since the walk emits as it goes. Only usable
         // as a sort key because the segments below are disjoint.
@@ -136,6 +137,9 @@ protected:
 
     // **Does this target call handlers, or jump to them?**
     virtual bool usesFunclets() const { return false; }
+
+    // **Does the table say a throw out of a cleanup pad terminates?** TI's does, with a scope over the pad.
+    virtual bool terminateScopes() const { return false; }
 
     // Write -2 into the runtime's scratch word.
     virtual void storeUnwindHelp(int slot) { (void)slot; }

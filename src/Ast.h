@@ -354,10 +354,15 @@ public:
 
     int scope() const { return scope_; }
     void setScope(int s) { scope_ = s; }
+    // **Run while an exception unwinds** - a pad's destructors and the
+    // resume - so a throw out of it is [except.terminate]'s, not a new one.
+    void setUnwindCleanup() { unwindCleanup_ = true; }
+    bool unwindCleanup() const { return unwindCleanup_; }
     void accept(Visitor &v) const override { v.visit(*this); }
 private:
     std::vector<StmtPtr> body_;
     int scope_ = -1;
+    bool unwindCleanup_ = false;
 };
 
 class If final : public Stmt {

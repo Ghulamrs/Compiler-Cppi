@@ -20,10 +20,20 @@ CXX1="${CXX1:-./cxx1i.exe}"
 cxx1() { ( ulimit -t 10; $CXX1 "$@" < /dev/null ); }
 OUT=tests/out-run
 rm -rf "$OUT"; mkdir -p "$OUT"
+# The host target, for a case whose .notarget names it - the same rule
+# emit.sh applies to every target, said out loud on every run.
+case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64) HOST=arm64-darwin ;;
+    *) HOST=x86_64-linux ;;
+esac
 
 pass=0; fail=0
 for src in tests/cases/*.cpp; do
     base=$(basename "$src" .cpp)
+    if [ -f "tests/cases/$base.notarget" ] && grep -q "^$HOST\b" "tests/cases/$base.notarget"; then
+        echo "  skip $base for $HOST: $(grep "^$HOST\b" "tests/cases/$base.notarget" | sed "s/^$HOST[[:space:]]*//")"
+        continue
+    fi
 
     if [ -f "tests/cases/$base.error" ]; then
         want=$(cat "tests/cases/$base.error")

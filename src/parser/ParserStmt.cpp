@@ -1473,6 +1473,7 @@ StmtPtr Parser::tryStatement(std::size_t pos) {
             }
             Block *padBlock = new Block(std::move(padSteps));
             padBlock->setScope(-1);
+            padBlock->setUnwindCleanup();
             // Behind the label a region inside this handler jumps to.
             StmtPtr padLabelled(new Label(endCatchLabel, StmtPtr(padBlock)));
             Try *region = new Try(std::move(guarded), std::move(padLabelled),
@@ -1536,6 +1537,7 @@ StmtPtr Parser::tryStatement(std::size_t pos) {
         resume.push_back(StmtPtr(new Goto(beyondTry)));
     Block *resumeBlock = new Block(std::move(resume));
     resumeBlock->setScope(-1);
+    resumeBlock->setUnwindCleanup();
     StmtPtr chain(resumeBlock);
 
     for (std::size_t i = handlers.size(); i-- > 0; ) {
