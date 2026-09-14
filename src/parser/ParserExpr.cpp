@@ -902,7 +902,18 @@ ExprPtr Parser::primary(Program *program) {
         if (peek().kind == TokenKind::Ident && isTemplateName(peek().text, true))
             return templateCall(program);
 
-        const std::string full = scope + "::" + expectIdent("a name");
+        std::string full = scope + "::" + expectIdent("a name");
+        // **A member of N's unnamed namespace is reached as `N::x`** -
+        // [namespace.unnamed]/1 puts a using-directive for it in N, which a
+        // qualified lookup honours: what N itself lacks is asked of it.
+        {
+            const std::string inner = scope + "::_GLOBAL__N_1::" + full.substr(scope.size() + 2);
+            if (overloadsOf(full) == nullptr && findGlobalToUpdate(full) == nullptr &&
+                findEnum(full) == nullptr && namespaces_.count(scope + "::_GLOBAL__N_1") &&
+                (overloadsOf(inner) != nullptr || findGlobalToUpdate(inner) != nullptr ||
+                 findEnum(inner) != nullptr))
+                full = inner;
+        }
         if (consume("(")) {
             std::vector<ExprPtr> args;
             parseArguments(args);
@@ -1111,16 +1122,16 @@ ExprPtr Parser::primary(Program *program) {
             callee != nullptr && (callee->isFunctionPointer() ||
                                   callee->unqualified()->isStructOrUnion());
 
-        // **An unqualified static member, inside a member function.** It needs no
-        // object, which is what lets it be answered here rather than through `this`.
-        // A local or a global of the same name is nearer and was found above.
-        if (l == nullptr && g == nullptr && currentClass_ != nullptr &&
+        // **An unqualified static member, inside a member function or the
+        // class's own body** - `static const int n = 8;` as an array bound two
+        // lines on. It needs no object; a nearer local or global was found above.
+        const Type *staticScope = currentClass_ != nullptr ? currentClass_
+                                : classStack_.empty() ? nullptr : classStack_.back();
+        if (l == nullptr && g == nullptr && staticScope != nullptr &&
             !peekAt(1).is("(")) {
-            if (const Type::StaticMember *s =
-                    currentClass_->findStaticMember(name)) {
+            if (const Type::StaticMember *s = staticScope->findStaticMember(name)) {
                 at_++;
-                return staticMemberRef(currentClass_, *s, currentClass_->tag(),
-                                       pos);
+                return staticMemberRef(staticScope, *s, staticScope->tag(), pos);
             }
         }
 
