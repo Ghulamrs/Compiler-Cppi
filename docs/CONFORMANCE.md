@@ -350,6 +350,19 @@ because the two rules are one piece of work and the narrow version is a
 deliberate stopping point, not an oversight.
 
 
+## A destructor that throws while an exception unwinds terminates
+
+[except.terminate]: an exception leaving a destructor during stack unwinding
+calls `std::terminate`. **Done on the Itanium targets and the C6000** since
+2026-09-15: the parser marks the blocks that run while an exception unwinds -
+a segment's pad, a `try`'s resume block, a handler's end-catch pad, less the
+resume call itself, since the Itanium unwinder continues from that call's
+own site - and each target's table puts a region over them: a catch-all row
+whose pad calls `std::terminate` as clang's `__clang_call_terminate` does, or
+on the C6000 cl6x's catch-and-terminate scope. **Not on x86_64-windows**,
+whose tables mark no funclet as terminating; `tests/cases/dtor-throws-unwinding`
+excuses it by name.
+
 ## A `noexcept` function terminates on its own throw, not on a callee's
 
 [except.spec]/9: when an exception escapes a function whose specification does

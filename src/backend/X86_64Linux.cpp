@@ -1343,6 +1343,15 @@ void X86_64Linux::landingPad(int pointerSlot, int selectorSlot) {
     a_->ins("mov", reg("%rax"), local(pointerSlot));
     a_->ins("movl", reg("%edx"), local(selectorSlot));
 }
+// Where a throw out of a cleanup pad lands: std::terminate, as clang's
+// __clang_call_terminate does, jumped over on the way through.
+std::string X86_64Linux::terminatePad(int id) {
+    a_->ins("jmp", lbl(label("terminateskip", id)));
+    a_->defLabel(label("terminate", id));
+    a_->ins("call", lbl("_ZSt9terminatev"));
+    a_->defLabel(label("terminateskip", id));
+    return label("terminate", id);
+}
 
 // The same table the arm64 backend writes, in this assembler's spelling; the
 // layout and every encoding byte are documented there. What differs is the

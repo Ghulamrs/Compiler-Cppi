@@ -44,11 +44,12 @@ operator-plus-int-int - each becoming a refusal case in tests/cases with the
 legal shape beside it in refusals-that-must-not-fire.cpp. two-d-array-member,
 the only *miscompile* the register ever held, went with them. A register that only ever
 grows is a list of complaints, and one that only ever shrinks is finished.
-**One arrived from the fourth target** (2026-09-15): dtor-throws-unwinding, a
-destructor that throws while another exception unwinds, which the standard
-says terminates - the C6000 table now has cl6x's catch-and-terminate scope
-over the cleanup pad and its case sits in tests/cases with the three hosts
-excused by name; the host tables have no such region yet, and this is that half.
+**One arrived from the fourth target and left the same day** (2026-09-15):
+dtor-throws-unwinding, a destructor that throws while another exception
+unwinds, which the standard says terminates - the C6000 table had cl6x's
+catch-and-terminate scope first, the Itanium hosts got a catch-all row whose
+pad aborts a few hours later, and the case sits in tests/cases with only
+x86_64-windows excused by name.
 
 The original fourteen were re-measured on 2026-09-09 at 48f28a3, one program each,
 from the tail of docs/audit-2026-09-06.html that the five roots did not cover -

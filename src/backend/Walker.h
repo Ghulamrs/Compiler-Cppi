@@ -140,6 +140,8 @@ protected:
 
     // **Does the table say a throw out of a cleanup pad terminates?** TI's does, with a scope over the pad.
     virtual bool terminateScopes() const { return false; }
+    // The pad that scope lands on, where the table needs one: empty where its word does the ending, as TI's.
+    virtual std::string terminatePad(int id) { (void)id; return std::string(); }
 
     // Write -2 into the runtime's scratch word.
     virtual void storeUnwindHelp(int slot) { (void)slot; }

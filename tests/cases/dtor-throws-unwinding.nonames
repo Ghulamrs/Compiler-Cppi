@@ -1,0 +1,1 @@
+x86_64-linux  the D1 form of `Loud::~Loud`, which cxx1 emits beside D2 where clang emits D2 alone with an alias; every declared name agrees - `_ZSt9terminatev` among them, which is what the region over the cleanup pad calls, as clang's `__clang_call_terminate` does - and arm64-darwin agrees wholly.

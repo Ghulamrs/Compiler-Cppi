@@ -1471,11 +1471,8 @@ StmtPtr Parser::tryStatement(std::size_t pos) {
                     runtimeCall("_Unwind_Resume", types_.get(Kind::Void),
                                 std::move(resumeArgs)))));
             }
-            Block *padBlock = new Block(std::move(padSteps));
-            padBlock->setScope(-1);
-            padBlock->setUnwindCleanup();
             // Behind the label a region inside this handler jumps to.
-            StmtPtr padLabelled(new Label(endCatchLabel, StmtPtr(padBlock)));
+            StmtPtr padLabelled(new Label(endCatchLabel, unwindPad(std::move(padSteps))));
             Try *region = new Try(std::move(guarded), std::move(padLabelled),
                                   padPtr, padSel, std::vector<std::string>());
             // **Only where the row will carry types.**
@@ -1535,10 +1532,7 @@ StmtPtr Parser::tryStatement(std::size_t pos) {
                         std::move(resumeArgs)))));
     else
         resume.push_back(StmtPtr(new Goto(beyondTry)));
-    Block *resumeBlock = new Block(std::move(resume));
-    resumeBlock->setScope(-1);
-    resumeBlock->setUnwindCleanup();
-    StmtPtr chain(resumeBlock);
+    StmtPtr chain = unwindPad(std::move(resume));
 
     for (std::size_t i = handlers.size(); i-- > 0; ) {
         if (handlers[i].type.empty()) {          // catch (...) matches always

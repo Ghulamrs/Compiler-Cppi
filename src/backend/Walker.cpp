@@ -65,20 +65,26 @@ void Walker::closeBlock(int scope) {
 void Walker::visit(const Block &n) {
     markLine(n);
     openBlock(n.scope());
-    // A pad's own code, under a row of its own where the target wants one:
-    // a destructor that throws while the exception unwinds terminates.
+    // A pad's own code, under a region of its own where the target wants
+    // one - the enclosing region split around it, as around a `try` - so a
+    // destructor that throws while the exception unwinds terminates.
     const bool scope = n.unwindCleanup() && terminateScopes();
     const int id = scope ? nextLabel() : 0;
-    if (scope) defineLabel(label("cleanup", id));
+    if (scope) {
+        defineLabel(label("cleanup", id));
+        openRegion(label("cleanup", id), std::vector<std::string>(), std::vector<int>());
+    }
     for (const StmtPtr &s : n.body()) s->accept(*this);
     if (scope) {
         defineLabel(label("cleanupend", id));
-        CallSite row;
-        row.begin = label("cleanup", id);
-        row.end = label("cleanupend", id);
-        row.terminate = true;
-        row.at = ++labelOrder_;
-        callSites_.push_back(row);
+        const std::vector<CallSite> pieces = closeRegion(label("cleanupend", id), label("cleanupend", id));
+        const std::string pad = terminatePad(id);
+        for (std::size_t i = 0; i < pieces.size(); i++) {
+            CallSite row = pieces[i];
+            row.pad = pad;
+            row.terminate = true;
+            callSites_.push_back(row);
+        }
     }
     closeBlock(n.scope());
 }
@@ -365,6 +371,13 @@ std::string Walker::lsdaTable(const LsdaSpelling &sp, const std::string &symbol,
     // included**: a miss makes libc++abi call terminate.
     int action = 1;
     std::string at = fnBegin;
+    // A terminate row catches anything, under a type index past the
+    // parser's; its pad ends the program.
+    int catchAll = 0;
+    for (std::size_t i = 0; i < callSites().size(); i++)
+        for (std::size_t k = 0; k < callSites()[i].indices.size(); k++)
+            if (callSites()[i].indices[k] > catchAll) catchAll = callSites()[i].indices[k];
+    catchAll++;
     // **Sorted by address, which is safe now and was not before.**
     std::vector<CallSite> rows = callSites();
     for (std::size_t i = 1; i < rows.size(); i++)
@@ -381,9 +394,9 @@ std::string Walker::lsdaTable(const LsdaSpelling &sp, const std::string &symbol,
         o += "  .uleb128 " + c.end + "-" + c.begin + "\n";
         o += "  .uleb128 " + c.pad + "-" + fnBegin + "\n";
         // No handler at all is a *cleanup*.
-        o += "  .uleb128 " + std::to_string(c.types.empty() ? 0 : action) + "\n";
+        o += "  .uleb128 " + std::to_string(c.types.empty() && !c.terminate ? 0 : action) + "\n";
         // **A `try` inside a cleanup region carries one record more.**
-        action += 2 * static_cast<int>(c.types.size() + (c.cleanup ? 1 : 0));
+        action += 2 * static_cast<int>(c.types.size() + (c.cleanup ? 1 : 0) + (c.terminate ? 1 : 0));
         at = c.end;
     }
     o += "  .uleb128 " + at + "-" + fnBegin + "\n";
@@ -398,6 +411,13 @@ std::string Walker::lsdaTable(const LsdaSpelling &sp, const std::string &symbol,
     types.clear();
     for (std::size_t i = 0; i < rows.size(); i++) {
         const CallSite &c = rows[i];
+        if (c.terminate) {
+            if (types.size() < static_cast<std::size_t>(catchAll)) types.resize(static_cast<std::size_t>(catchAll));
+            types[static_cast<std::size_t>(catchAll) - 1] = std::string();
+            o += "  .byte " + std::to_string(catchAll) + "\n";
+            o += "  .byte 0\n";
+            continue;
+        }
         for (std::size_t k = 0; k < c.types.size(); k++) {
             const std::size_t at = k < c.indices.size()
                                        ? static_cast<std::size_t>(c.indices[k])

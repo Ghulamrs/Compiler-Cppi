@@ -856,10 +856,20 @@ StmtPtr Parser::cleanupPad(std::size_t from, std::size_t to, int pointerSlot,
                         std::move(args)))));
     else
         steps.push_back(StmtPtr(new Goto(chainLabel)));
+    return unwindPad(std::move(steps));
+}
 
-    Block *b = new Block(std::move(steps));
+StmtPtr Parser::unwindPad(std::vector<StmtPtr> steps) {
+    StmtPtr last = std::move(steps.back());
+    steps.pop_back();
+    Block *inner = new Block(std::move(steps));
+    inner->setScope(-1);
+    inner->setUnwindCleanup();
+    std::vector<StmtPtr> outer;
+    outer.push_back(StmtPtr(inner));
+    outer.push_back(std::move(last));
+    Block *b = new Block(std::move(outer));
     b->setScope(-1);
-    b->setUnwindCleanup();
     return StmtPtr(b);
 }
 

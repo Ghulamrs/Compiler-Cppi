@@ -357,6 +357,15 @@ void Arm64Darwin::landingPad(int pointerSlot, int selectorSlot) {
     out_ << "  sub x9, x29, x9\n";
     out_ << "  str w1, [x9]\n";
 }
+// Where a throw out of a cleanup pad lands: std::terminate, as clang's
+// __clang_call_terminate does, jumped over on the way through.
+std::string Arm64Darwin::terminatePad(int id) {
+    out_ << "  b " << label("terminateskip", id) << "\n";
+    out_ << label("terminate", id) << ":\n";
+    out_ << "  bl __ZSt9terminatev\n";
+    out_ << label("terminateskip", id) << ":\n";
+    return label("terminate", id);
+}
 
 // **The language-specific data area, laid out exactly as clang lays it out** -
 // every number read off clang's output, since the personality routine trusts

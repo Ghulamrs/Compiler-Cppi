@@ -57,6 +57,8 @@ public:
     void visit(const Return &) override;
 
     void landingPad(int pointerSlot, int selectorSlot) override;
+    bool terminateScopes() const override { return true; }
+    std::string terminatePad(int id) override;
 
 private:
     // The `.gcc_except_table` for the function just emitted: the call-site

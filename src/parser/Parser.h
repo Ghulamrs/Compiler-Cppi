@@ -1041,6 +1041,11 @@ private:
     // `except` is the frame offset of an object not to destroy - the one being returned,
     // which the caller destroys instead. And a cleanup region's landing pad: destroy
     // alive_[from..to), last first, and hand the exception back to the unwinder.
+
+    // A pad's steps as a block, all but the last - the resume, or the jump
+    // that hands over - in an inner block marked as running while the
+    // exception unwinds: the Itanium unwinder continues from the resume call's own site.
+    static StmtPtr unwindPad(std::vector<StmtPtr> steps);
     StmtPtr cleanupPad(std::size_t from, std::size_t to, int pointerSlot,
                        const std::vector<Temporary> &temps,
                        std::size_t pos,
