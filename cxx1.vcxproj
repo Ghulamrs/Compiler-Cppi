@@ -75,6 +75,7 @@
     <ClCompile Include="src\parser\ParserTemplate.cpp" />
     <ClCompile Include="src\parser\ParserTopLevel.cpp" />
     <ClCompile Include="src\parser\ParserType.cpp" />
+    <ClCompile Include="src\parser\ParserVtable.cpp" />
     <ClCompile Include="src\backend\Arm64Darwin.cpp" />
     <ClCompile Include="src\backend\Backend.cpp" />
     <ClCompile Include="src\backend\Dwarf.cpp" />

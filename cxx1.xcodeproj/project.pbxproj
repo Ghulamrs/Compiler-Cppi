@@ -29,6 +29,7 @@
 		60BFAE49DC29117BA7305BD2 /* src/parser/ParserTemplate.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D1DEC0197B3B590C62B3837F /* src/parser/ParserTemplate.cpp */; };
 		AF4739873FBA6B5C7D59435E /* src/parser/ParserTopLevel.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 3DA629FE263B95A4528A69A5 /* src/parser/ParserTopLevel.cpp */; };
 		2FD7EC193D45A41E07BFFAB5 /* src/parser/ParserType.cpp in Sources */ = {isa = PBXBuildFile; fileRef = F214BC59600E2B181C2A67E3 /* src/parser/ParserType.cpp */; };
+		E840F7D0A18BC54DA63C9A5E /* src/parser/ParserVtable.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8F9C2267EF53A894A731FA6C /* src/parser/ParserVtable.cpp */; };
 		CA45AB42039AE470AA13D9A8 /* src/backend/Arm64Darwin.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E8CB1E907CBCBCAF97840BE4 /* src/backend/Arm64Darwin.cpp */; };
 		8DFC02EF8BB8BEBC3B7BB505 /* src/backend/Backend.cpp in Sources */ = {isa = PBXBuildFile; fileRef = F695A4615AEF2C7E2B592FA4 /* src/backend/Backend.cpp */; };
 		418BB563D7961586E3949832 /* src/backend/Dwarf.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0088B521C8C151BC38692963 /* src/backend/Dwarf.cpp */; };
@@ -63,6 +64,7 @@
 		D1DEC0197B3B590C62B3837F /* src/parser/ParserTemplate.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = src/parser/ParserTemplate.cpp; sourceTree = "<group>"; };
 		3DA629FE263B95A4528A69A5 /* src/parser/ParserTopLevel.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = src/parser/ParserTopLevel.cpp; sourceTree = "<group>"; };
 		F214BC59600E2B181C2A67E3 /* src/parser/ParserType.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = src/parser/ParserType.cpp; sourceTree = "<group>"; };
+		8F9C2267EF53A894A731FA6C /* src/parser/ParserVtable.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = src/parser/ParserVtable.cpp; sourceTree = "<group>"; };
 		E8CB1E907CBCBCAF97840BE4 /* src/backend/Arm64Darwin.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = src/backend/Arm64Darwin.cpp; sourceTree = "<group>"; };
 		F695A4615AEF2C7E2B592FA4 /* src/backend/Backend.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = src/backend/Backend.cpp; sourceTree = "<group>"; };
 		0088B521C8C151BC38692963 /* src/backend/Dwarf.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = src/backend/Dwarf.cpp; sourceTree = "<group>"; };
@@ -140,6 +142,7 @@
 				D1DEC0197B3B590C62B3837F /* src/parser/ParserTemplate.cpp */,
 				3DA629FE263B95A4528A69A5 /* src/parser/ParserTopLevel.cpp */,
 				F214BC59600E2B181C2A67E3 /* src/parser/ParserType.cpp */,
+				8F9C2267EF53A894A731FA6C /* src/parser/ParserVtable.cpp */,
 				E8CB1E907CBCBCAF97840BE4 /* src/backend/Arm64Darwin.cpp */,
 				F695A4615AEF2C7E2B592FA4 /* src/backend/Backend.cpp */,
 				0088B521C8C151BC38692963 /* src/backend/Dwarf.cpp */,
@@ -273,6 +276,7 @@
 				60BFAE49DC29117BA7305BD2 /* src/parser/ParserTemplate.cpp in Sources */,
 				AF4739873FBA6B5C7D59435E /* src/parser/ParserTopLevel.cpp in Sources */,
 				2FD7EC193D45A41E07BFFAB5 /* src/parser/ParserType.cpp in Sources */,
+				E840F7D0A18BC54DA63C9A5E /* src/parser/ParserVtable.cpp in Sources */,
 				CA45AB42039AE470AA13D9A8 /* src/backend/Arm64Darwin.cpp in Sources */,
 				8DFC02EF8BB8BEBC3B7BB505 /* src/backend/Backend.cpp in Sources */,
 				418BB563D7961586E3949832 /* src/backend/Dwarf.cpp in Sources */,
