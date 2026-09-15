@@ -31,7 +31,7 @@ Two rules about what may be added:
     clang built=1 gone=1 live=0: the same program, one leaked exception object,
     and identical output above the ledger line.
 
-Eight are here now (open.sh counts), and both halves of that number are the point. **Five of
+Five are here now (open.sh counts), and both halves of that number are the point. **Five of
 the original fourteen have been mended and moved out** with their .expected,
 which is the movement the rule above asks for: capture-default-this,
 polymorphic-class-template-zts, catch-return-end-catch, and then
@@ -45,9 +45,12 @@ legal shape beside it in refusals-that-must-not-fire.cpp. two-d-array-member,
 the only *miscompile* the register ever held, went with them. A register that only ever
 grows is a list of complaints, and one that only ever shrinks is finished.
 **virtual-base-dispatch arrived on 2026-09-15** from the third review: a
-class with a virtual base has no function slots in its vtable, no secondary
+class with a virtual base had no function slots in its vtable, no secondary
 vtable, VTT or virtual thunk, and no deleting destructor - the Itanium
-machinery of virtual inheritance, which no target has yet.
+machinery of virtual inheritance. **It left the same evening with
+virtual-base-second-base and virtual-dtor-through-virtual-base**, the three
+that were that machinery seen from three sides, when it was written
+(CLAUDE.md, "Virtual inheritance proper"); all three sit in tests/cases.
 **wchar-distinct left on 2026-09-15**, wchar_t being a Kind of its own now,
 mangled `w`, an overload apart from int - the third review's T8, seen from
 the link. **One arrived from the fourth target and left the same day** (2026-09-15):

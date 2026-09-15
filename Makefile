@@ -57,7 +57,7 @@ CXXFLAGS = -std=c++14 -O2 -g -Wall -Wextra -Werror -pedantic -pthread \
            -DCXX1_CXX_INCLUDE_DIR='"$(CXXINCDIR)"'
 # src/backend holds one file per platform: the sizes its types measure, the ABI
 # facts the front end has to know, and the code generator when there is one.
-# src/parser holds the eleven files one class is split over - see its Parser.cpp.
+# src/parser holds the twelve files one class is split over - see its Parser.cpp.
 #
 # **A basename may not repeat across these three directories.** Objects here go
 # under obj/ mirroring src/, so a collision would be harmless - but msvc/
