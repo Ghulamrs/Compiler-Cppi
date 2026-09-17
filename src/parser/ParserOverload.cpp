@@ -94,6 +94,30 @@ ExprPtr Parser::convert(ExprPtr e, const Type *to, bool allowExplicit) const {
         e->setType(to);
         return e;
     }
+    // **A null data member pointer is -1 on both ABIs** - an offset of 0 is a
+    // real member - and Microsoft's virtual model writes {0, -1}. It had been a
+    // plain zero, so a member at 0 was null and a null from clang or cl was not.
+    if (e->type()->isNullPtr() && to->unqualified()->isMemberPointer()) {
+        const bool virtualModel = target_.microsoftNames() && to->unqualified()->size(target_) == 8;
+        ExprPtr n(new Num(virtualModel ? -4294967296LL : -1LL));
+        n->setType(types_.get(Kind::LongLong));
+        ExprPtr asTo(new Cast(to->unqualified(), std::move(n)));
+        asTo->setType(to);
+        return asTo;
+    }
+    {
+        // A member pointer of a base becoming one of the derived class: the
+        // value moves by the base's offset, or the pair is rebuilt where the
+        // two classes' models differ in width; at 0 and one width, only the type.
+        const int shift = memberPointerToDerived(e->type(), to);
+        const Type *ft = e->type()->unqualified();
+        if (shift >= 0 && ft->enclosing()->unqualified() != to->unqualified()->enclosing()->unqualified()) {
+            if (shift > 0 || ft->size(target_) != to->unqualified()->size(target_))
+                return convertMemberPointer(std::move(e), to->unqualified(), shift);
+            e->setType(to);
+            return e;
+        }
+    }
 
     // **Derived * to Base * moves the value where the base is not the first one**
     // - B at 4 walks the pointer forward by four. The null check is the rule and
@@ -292,6 +316,124 @@ static bool publiclyDerivedFrom(const Type *derived, const Type *base) {
     return publicBaseOffset(derived, base) >= 0;
 }
 
+static bool throughVirtualBase(const Type *derived, const Type *base) {
+    const Type *d = derived->unqualified();
+    const std::vector<Type::BaseSpec> &bases = d->bases();
+    for (std::size_t i = 0; i < bases.size(); i++) {
+        if (bases[i].type->unqualified() == base->unqualified()) return bases[i].isVirtual;
+        if (publicBaseOffset(bases[i].type, base) >= 0)
+            return bases[i].isVirtual || throughVirtualBase(bases[i].type, base);
+    }
+    return false;
+}
+
+// **[conv.mem]/2: `int B::*` converts to `int D::*` for a D derived from B**,
+// the offset or the `this` adjustment growing by the base's. Through a
+// virtual base it is ill-formed, which both oracles say; -1 here does too.
+int Parser::memberPointerToDerived(const Type *from, const Type *to) const {
+    const Type *f = from->unqualified(), *t = to->unqualified();
+    const bool data = f->isMemberPointer() && t->isMemberPointer();
+    const bool fn = f->isMemberFunctionPointer() && t->isMemberFunctionPointer();
+    if (!data && !fn) return -1;
+    if (f->enclosing() == nullptr || t->enclosing() == nullptr) return -1;
+    if (data ? f->pointee()->unqualified() != t->pointee()->unqualified()
+             : f->pointee() != t->pointee()) return -1;
+    if (f->enclosing()->unqualified() == t->enclosing()->unqualified()) return 0;
+    const int off = publicBaseOffset(t->enclosing(), f->enclosing());
+    if (off < 0) return -1;
+    if (throughVirtualBase(t->enclosing(), f->enclosing())) return -1;
+    return off;
+}
+
+ExprPtr Parser::convertMemberPointer(ExprPtr e, const Type *to, int shift) const {
+    Parser *self = const_cast<Parser *>(this);
+    const Type *ft = e->type()->unqualified();
+    if (ft->isMemberPointer()) {
+        // Itanium's ptrdiff_t and Microsoft's int, held in the widest lane;
+        // a null pointer stays the null of its destination.
+        const Type *wide = types_.get(Kind::LongLong);
+        const bool fourBytes = ft->size(target_) == 4;
+        const Type *lane = fourBytes ? types_.get(Kind::Int) : wide;
+        const int slot = self->allocateFrameSlot(ft);
+        const std::string name = ".mq" + std::to_string(self->refTemps_++);
+        auto held = [&]() { ExprPtr v(Var::local(name, slot)); v->setType(ft); return v; };
+        auto asLane = [&]() { ExprPtr c(new Cast(lane, held())); c->setType(lane); return c; };
+        auto num = [&](long long n, const Type *t) { ExprPtr v(new Num(n)); v->setType(t); return v; };
+        ExprPtr keep(new Assign(held(), std::move(e)));
+        keep->setType(ft);
+        ExprPtr isNull(new Binary(BinOp::Eq, asLane(), num(-1, lane)));
+        isNull->setType(types_.get(Kind::Bool));
+        const bool virtualModel = target_.microsoftNames() && to->size(target_) == 8;
+        ExprPtr nullTo = num(virtualModel ? -4294967296LL : -1LL, wide);
+        ExprPtr widened(new Cast(wide, asLane()));
+        widened->setType(wide);
+        ExprPtr moved(new Binary(BinOp::Add, std::move(widened), num(shift, wide)));
+        moved->setType(wide);
+        ExprPtr chosen(new Conditional(std::move(isNull), std::move(nullTo), std::move(moved)));
+        chosen->setType(wide);
+        ExprPtr asTo(new Cast(to, std::move(chosen)));
+        asTo->setType(to);
+        ExprPtr whole(new Comma(std::move(keep), std::move(asTo)));
+        whole->setType(to);
+        return whole;
+    }
+    // The pair, rebuilt in the destination's shape: the code word copied, the
+    // adjustment grown by the base's offset unless the pointer is null, and
+    // Microsoft's vbtable index carried or zero.
+    const int fromSlot = self->allocateFrameSlot(ft);
+    const int toSlot = self->allocateFrameSlot(to);
+    const std::string fromName = ".mq" + std::to_string(self->refTemps_++);
+    const std::string toName = ".mq" + std::to_string(self->refTemps_++);
+    auto src = [&](const char *m) {
+        const Member *mm = ft->findMember(m);
+        if (mm == nullptr) return ExprPtr();
+        ExprPtr v(Var::local(fromName, fromSlot)); v->setType(ft);
+        ExprPtr a(new MemberAccess(std::move(v), m, mm->offset, 0, 0)); a->setType(mm->type); return a;
+    };
+    auto dst = [&](const char *m) {
+        const Member *mm = to->findMember(m);
+        ExprPtr v(Var::local(toName, toSlot)); v->setType(to);
+        ExprPtr a(new MemberAccess(std::move(v), m, mm->offset, 0, 0)); a->setType(mm->type); return a;
+    };
+    auto num = [&](long long n, const Type *t) { ExprPtr v(new Num(n)); v->setType(t); return v; };
+    ExprPtr chain(new Assign(ExprPtr(Var::local(fromName, fromSlot)), std::move(e)));
+    chain->setType(ft);
+    static const char *const fields[] = { "$fn", "$adj", "$vbi" };
+    for (std::size_t i = 0; i < 3; i++) {
+        const Member *tm = to->findMember(fields[i]);
+        if (tm == nullptr) continue;
+        ExprPtr value = src(fields[i]);
+        if (value == nullptr) value = num(0, tm->type);
+        else if (i == 0 && value->type() != tm->type) value->setType(tm->type);
+        if (i == 1 && shift != 0) {
+            ExprPtr code = src("$fn");
+            ExprPtr zero(new Cast(code->type(), num(0, types_.get(Kind::LongLong))));
+            zero->setType(code->type());
+            ExprPtr live(new Binary(BinOp::Ne, std::move(code), std::move(zero)));
+            live->setType(types_.get(Kind::Bool));
+            ExprPtr grow(new Conditional(std::move(live), num(shift, tm->type), num(0, tm->type)));
+            grow->setType(tm->type);
+            ExprPtr sum(new Binary(BinOp::Add, std::move(value), std::move(grow)));
+            sum->setType(tm->type);
+            value = std::move(sum);
+        }
+        ExprPtr put(new Assign(dst(fields[i]), std::move(value)));
+        put->setType(tm->type);
+        ExprPtr both(new Comma(std::move(chain), std::move(put)));
+        both->setType(tm->type);
+        chain = std::move(both);
+    }
+    ExprPtr whole(Var::local(toName, toSlot));
+    whole->setType(to);
+    ExprPtr at(new Unary('&', std::move(whole)));
+    at->setType(types_.pointerTo(to));
+    ExprPtr seq(new Comma(std::move(chain), std::move(at)));
+    seq->setType(types_.pointerTo(to));
+    ExprPtr made(new Unary('*', std::move(seq)));
+    made->setType(to);
+    return made;
+}
+
 static bool qualificationConvertible(const Type *from, const Type *to) {
     bool prefixConst = true;
     for (;;) {
@@ -436,6 +578,7 @@ Parser::Rank Parser::rankArgument(const Expr &arg, const Type *param) {
     // clang reports. **And not to bool here**: that conversion is direct-init only.
     if (from->isNullPtr() && (to->isPointer() || to->isMemberPointer()))
         return Rank::Conversion;
+    if (memberPointerToDerived(from, to) > 0) return Rank::Conversion;
 
     // And the literal 0 converts *to* std::nullptr_t, at the same rank - which
     // is why `f(0)` against `f(decltype(nullptr))` and `f(char *)` is
@@ -859,6 +1002,7 @@ void Parser::checkAssignable(const Expr &from, const Type *to, std::size_t pos,
     if (ft->unqualified() == to->unqualified()) return;
 
     if (ft->isArithmetic() && to->isArithmetic()) return;
+    if (memberPointerToDerived(ft, to) >= 0) return;
 
     // **A class converts by its own conversion function**, [class.conv.fct] - the mirror of the
     // converting constructor, and the same one rule: at most one user-defined conversion in a

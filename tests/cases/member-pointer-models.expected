@@ -1,0 +1,25 @@
+Single data ok
+Single fn ok
+Multi data ok
+Multi fn ok
+Virt data ok
+Virt fn ok
+Poly data ok
+Poly fn ok
+Deep fn ok
+sizeof Holds ok
+own fn ok
+base fn ok
+own data ok
+base data ok
+deep own ok
+deep base ok
+deep data ok
+held fn ok
+held data ok
+virt fn ok
+virt data ok
+poly fn ok
+poly data ok
+null data stays null ok
+0 wrong

@@ -10070,10 +10070,10 @@ CCS 7.4 on the Windows box assembling all 296 and linking every one** through
 Thirty-four goldens changed: the terminate scope, the dead closures leaving,
 and every case with a static local taking its new symbol.
 
-## The seam with cl: a constructor's RAX, overloaded slots, a prototype's parameter, empty bases, pragma pack
+## The seam with cl: a constructor's RAX, overloaded slots, a prototype's parameter, empty bases, pragma pack, member pointers
 
 **All from the review of 2026-09-17 against cl (`VM6747/CXX1I-REVIEW-2026-09-17.md`,
-A1 to A5); A1, A3 and A4 invisible to anything compiled by cxx1 alone** - which
+A1 to A6); A1, A3, A4 and A6 invisible to anything compiled by cxx1 alone** - which
 is why every suite was green while a program half compiled by cl crashed.
 `tests/winlink/` is the answer to that: two-half programs, the a-half by
 cxx1 and the b-half by cl and then the reverse, linked and run by
@@ -10160,6 +10160,35 @@ pack by name (`Target::loadsUnaligned`): its LDW faults on a misaligned word
 and the backend emits no LDNW - the emulator showed the fault first - and
 cl6x has no `#pragma pack` at all. `tests/tms6747.sh` now honours a
 `.notarget` naming tms6747, as run.sh does for the host.
+
+**A6. A pointer to a member is sized by cl's inheritance model.** cxx1 sized
+every Microsoft one as single: a data pointer an int, a function pointer one
+code word. cl: a data pointer is an int offset, joined by a vbtable index
+under virtual inheritance - 4, 4, 8 - and a function pointer a code word,
+joined by an int `this` adjustment under multiple inheritance and the
+vbtable index after that under virtual - 8, 16, 16. `sizeof` of any class
+holding one, and every argument slot after one, differed from cl's.
+`Type::microsoftInheritanceModel` is clang's calculateInheritanceModel,
+measured: a virtual base anywhere is virtual; more than one base at any
+level of the single-base chain, or the first vfptr added over a base
+without one, is multiple; an incomplete class is cl's "unspecified" (three
+fields, 12 and 24 bytes), refused by name. `memberFunctionPointerTo` lays
+`$fn`, `$adj` (int) and `$vbi` by model; `&S::f` zeroes both; a Microsoft
+call through a pair with `$adj` copies it to a slot and moves `this` by it,
+as the Itanium call does, since a cl caller may hand a non-zero one. With
+the widths came two things the seam needed. **[conv.mem]**: `&Single::f`
+becoming an `int (Multi::*)()` was refused as a type mismatch; now
+`memberPointerToDerived` finds the base's offset (never through a virtual
+base, which is ill-formed) and `convertMemberPointer` grows the data
+offset or the pair's adjustment by it, rebuilding the pair in the wider
+shape where the models differ, on both ABIs. **A null data member pointer
+is -1** on both ABIs ({0, -1} in the virtual model); cxx1 stored a plain 0,
+so a member at offset 0 was null and clang's or cl's null was not - the
+nullptr conversion and the `== nullptr` comparison now use -1, and the
+nullptr golden changed on all four targets for it. `member-pointer-models
+.cpp` (27 checks, clang and cl 0 wrong) and `tests/winlink/member-pointer
+-models` (cl's `&Single::f` with adjustment 4 applied by cxx1, and the
+reverse) measure it.
 
 Measured on the four sandboxes at the close of A1/A3: Mac 496 / 1187 / 306 / 30, the
 tms6747 emissions byte-identical to the golden recorded at 3c1130a (so the

@@ -86,10 +86,15 @@ ExprPtr Parser::boundMemberPointer(const Type *cls, const Signature &f,
     store->setType(word);
 
     ExprPtr chain = std::move(store);
-    if (const Member *adj = mp->findMember("$adj")) {
+    // The adjustment, and Microsoft's vbtable index: zero, for a member of
+    // the class itself, which is every `&S::f` this reads.
+    static const char *const zeroed[] = { "$adj", "$vbi" };
+    for (std::size_t zi = 0; zi < 2; zi++) {
+        const Member *adj = mp->findMember(zeroed[zi]);
+        if (adj == nullptr) continue;
         ExprPtr self(Var::local("$mfp", slot));
         self->setType(mp);
-        ExprPtr zeroAt(new MemberAccess(std::move(self), "$adj", adj->offset,
+        ExprPtr zeroAt(new MemberAccess(std::move(self), zeroed[zi], adj->offset,
                                         0, 0));
         zeroAt->setType(adj->type);
         ExprPtr zero(new Num(0LL));
@@ -135,12 +140,39 @@ ExprPtr Parser::applyMemberPointer(ExprPtr addr, ExprPtr mp, std::size_t pos,
         const Type *fnPtr = types_.pointerTo(mpt->pointee());
         boundFn_ = mpt->pointee();
         boundAt_ = pos;
-        if (target_.microsoftNames()) {
+        if (target_.microsoftNames() && mpt->findMember("$adj") == nullptr) {
             // One code pointer, a vcall thunk standing in for a virtual one.
             ExprPtr held(new MemberAccess(std::move(mp), "$fn", slot->offset, 0, 0));
             held->setType(fnPtr);
             boundThis_ = std::move(addr);
             return held;
+        }
+        if (target_.microsoftNames()) {
+            // cl's multiple and virtual forms carry a `this` adjustment after the
+            // code pointer, and a cl caller may hand one that is not zero: the
+            // pair is copied to a slot and the object moved by it, as Itanium's is.
+            const Type *thisType = addr->type();
+            const Type *chars = types_.pointerTo(types_.get(Kind::Char));
+            const Member *adjSlot = mpt->findMember("$adj");
+            const int pairSlot = allocateFrameSlot(mpt);
+            const std::string pairName = ".mp" + std::to_string(refTemps_++);
+            auto pair = [&]() { ExprPtr e(Var::local(pairName, pairSlot)); e->setType(mpt); return e; };
+            ExprPtr keepPair(new Assign(pair(), std::move(mp)));
+            keepPair->setType(mpt);
+            ExprPtr adjRead(new MemberAccess(pair(), "$adj", adjSlot->offset, 0, 0));
+            adjRead->setType(adjSlot->type);
+            ExprPtr asChars(new Cast(chars, std::move(addr)));
+            asChars->setType(chars);
+            ExprPtr moved(new Binary(BinOp::Add, std::move(asChars), std::move(adjRead)));
+            moved->setType(chars);
+            ExprPtr self(new Cast(thisType, std::move(moved)));
+            self->setType(thisType);
+            ExprPtr code(new MemberAccess(pair(), "$fn", slot->offset, 0, 0));
+            code->setType(fnPtr);
+            ExprPtr callee(new Comma(std::move(keepPair), std::move(code)));
+            callee->setType(fnPtr);
+            boundThis_ = std::move(self);
+            return callee;
         }
         // **Itanium decides at the call**: the pair copied to a slot, the
         // object moved by its adjustment, and a set low bit in the code word

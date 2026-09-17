@@ -1,0 +1,14 @@
+extern "C" int printf(const char *, ...);
+struct One { char c; };
+struct Single { int x; int f(); };
+struct Multi : One, Single { int y; int g(); };
+struct V { int v; };
+struct Virt : virtual V { int z; int h(); };
+struct Plain { int p; };
+struct Poly : Plain { virtual int k(); int q; };
+int callMulti(Multi &m, int (Multi::*p)());
+int readMulti(Multi &m, int Multi::*p);
+int callVirt(Virt &o, int (Virt::*p)());
+int readVirt(Virt &o, int Virt::*p);
+int callPoly(Poly &o, int (Poly::*p)());
+int sizes();

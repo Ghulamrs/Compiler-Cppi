@@ -1461,6 +1461,10 @@ private:
     const Type *promote(const Type *t) const;
     const Type *usualArithmetic(const Type *a, const Type *b) const;
     ExprPtr convert(ExprPtr e, const Type *to, bool allowExplicit = false) const;
+    // [conv.mem]: a pointer to a member of B becomes one to a member of D, D
+    // derived from B; the base's offset, or -1 where that is not the case.
+    int memberPointerToDerived(const Type *from, const Type *to) const;
+    ExprPtr convertMemberPointer(ExprPtr e, const Type *to, int shift) const;
     const Type *unsignedVersion(const Type *t) const;
 
     ExprPtr decay(ExprPtr e);

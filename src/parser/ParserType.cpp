@@ -2195,9 +2195,15 @@ Parser::Declared Parser::declarator(const Type *base, bool nameOptional,
                 src_.fail(pos, "'" + of + "' is not a class, so '" + of +
                                "::*' names no member of anything");
             at_ += 2;                              // the '::' and the '*'
-            // **A pointer to a member *function* is refused by name**, and it is a
-            // different animal: not an offset but a function to call with a `this`.
-            // The base says which of the two this is, its function type already built.
+            // cl sizes a member pointer by the class's inheritance model, and an
+            // incomplete class takes the three-field "unspecified" form: refused.
+            if (target_.microsoftNames() && !cls->isComplete())
+                src_.fail(pos, "'" + of + "::*' before '" + of + "' is complete - "
+                               "the Microsoft ABI sizes a pointer to a member by "
+                               "the class's inheritance model, and an incomplete "
+                               "class takes the widest form (cl's unspecified "
+                               "model, 12 and 24 bytes). Not supported yet; "
+                               "define the class first");
             const Type *mp;
             if (base->isFunction()) {
                 mp = types_.memberFunctionPointerTo(cls, base, target_);

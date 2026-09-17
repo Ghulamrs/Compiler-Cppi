@@ -223,6 +223,9 @@ ExprPtr Parser::comparison(BinOp op, ExprPtr lhs, ExprPtr rhs, std::size_t pos) 
                        "order - only '==' and '!=' are written with 'nullptr'");
     if (null || lhs->type()->isPointer() || rhs->type()->isPointer() ||
         lhs->type()->isMemberPointer() || rhs->type()->isMemberPointer()) {
+        // The null a data member pointer holds is -1, so nullptr becomes that first.
+        if (lhs->type()->isNullPtr() && rhs->type()->isMemberPointer()) lhs = convert(std::move(lhs), rhs->type());
+        if (rhs->type()->isNullPtr() && lhs->type()->isMemberPointer()) rhs = convert(std::move(rhs), lhs->type());
         n = ExprPtr(new Binary(op, std::move(lhs), std::move(rhs)));
     } else {
         const Type *common = usualArithmetic(lhs->type(), rhs->type());

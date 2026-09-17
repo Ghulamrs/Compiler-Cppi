@@ -294,6 +294,8 @@ public:
     }
     // **A vptr is not the same question as `polymorphic`.**
     bool hasVptr() const { return polymorphic() || hasVirtualBase(); }
+    // cl's model, which sizes a pointer to a member: 0 single, 1 multiple, 2 virtual, 3 incomplete.
+    int microsoftInheritanceModel() const;
     // The size without the virtual bases - clang's `nvsize`. A base contributes
     // only this much, or the diamond holds three copies of V.
     int nvDataSize() const { return nvDataSize_ ? nvDataSize_ : dataSize(); }
