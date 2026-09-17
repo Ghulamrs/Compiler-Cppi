@@ -1,0 +1,68 @@
+sizeof A1 ok
+sizeof A2 ok
+A2.c ok
+sizeof A3 ok
+A3.x ok
+A3 E1 ok
+A3 E2 ok
+sizeof A4 ok
+A4.x ok
+A4 E3 ok
+sizeof A5 ok
+A5.x ok
+sizeof A6 ok
+A6.x ok
+sizeof A7 ok
+A7.x ok
+A7 E2 ok
+sizeof A8 ok
+A8.x ok
+sizeof A9 ok
+A9.x ok
+sizeof B2 ok
+B2.x ok
+B2 E2 ok
+sizeof C2 ok
+C2.x ok
+sizeof D2 ok
+D2.d ok
+sizeof Y ok
+Y.x ok
+Y E2 ok
+sizeof YY ok
+YY E3 ok
+sizeof W ok
+W E2 ok
+sizeof U ok
+U E2 ok
+sizeof ZZ ok
+ZZ E2 ok
+sizeof Z5 ok
+Z5 E2 ok
+sizeof ARR ok
+ARR E2 ok
+sizeof S ok
+S T ok
+sizeof P ok
+P T ok
+sizeof CC ok
+CC C1 ok
+M.e ok
+M.f ok
+M.x ok
+sizeof G ok
+G E2 ok
+sizeof H ok
+H.c ok
+sizeof K ok
+K E3 ok
+sizeof L ok
+L E2 ok
+sizeof N3 ok
+N3.d ok
+sizeof PW ok
+PW.x ok
+PW E2 ok
+sizeof Q2 ok
+Q2 E3 ok
+0 wrong

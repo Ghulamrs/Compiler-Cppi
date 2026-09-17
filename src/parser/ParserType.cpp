@@ -241,6 +241,29 @@ const Type *Parser::structOrUnionSpecifier(Kind kind, bool isClass) {
         if (!written[bi].isVirtual && written[bi].type != primary)
             layOrder.push_back(bi);
     std::vector<int> baseAt(written.size(), 0);
+    // cl's two flags, carried by the last base or class-typed member laid and
+    // by the first base - see Type::endsWithZeroSized.
+    bool endsZero = false, leadsZero = false, leadsKnown = false;
+    const Type *prevBase = nullptr;
+    // Itanium's conflict list for this class, and the size an empty base pushed
+    // past the cursor still claims - `struct CC : E1, C1 { int x; }` has C1 at 1.
+    std::vector<Type::EmptyAt> empties;
+    long long sizeFloor = 0;
+    struct Conflict {
+        static bool at(const std::vector<Type::EmptyAt> &have, const Type *t, int off) {
+            const std::vector<Type::EmptyAt> &in = t->unqualified()->emptySubobjects();
+            for (std::size_t i = 0; i < in.size(); i++)
+                for (std::size_t j = 0; j < have.size(); j++)
+                    if (have[j].type == in[i].type && have[j].offset == in[i].offset + off)
+                        return true;
+            return false;
+        }
+        static void add(std::vector<Type::EmptyAt> &have, const Type *t, int off) {
+            const std::vector<Type::EmptyAt> &in = t->unqualified()->emptySubobjects();
+            for (std::size_t i = 0; i < in.size(); i++)
+                have.push_back(Type::EmptyAt{ in[i].type, in[i].offset + off });
+        }
+    };
 
     for (std::size_t li = 0; li < layOrder.size(); li++) {
         // A virtual base is not in that order at all: it goes after every
@@ -248,9 +271,24 @@ const Type *Parser::structOrUnionSpecifier(Kind kind, bool isClass) {
         const std::size_t bi = layOrder[li];
         const Type *b = written[bi].type;
         const Access how = written[bi].access;
+        // **cl lays every base with a vfptr before the rest**, wherever it was
+        // written - `struct PX : E1, PV` has PV at 0 - which is not laid here. The
+        // vtable code refuses it only when the class adds a virtual of its own.
+        if (target_.microsoftNames() && bi != 0 && b->polymorphic())
+            src_.fail(pos, "'" + tag + "' has virtual functions in a base "
+                           "that is not the first, and the Microsoft ABI "
+                           "lays that out differently - the base with the "
+                           "vfptr goes first, wherever it was written. Not "
+                           "supported yet; it is measured for Itanium only");
 
         // Each base starts where the last one's data ended, aligned to its own requirement.
         long long byteCursor = (bitCursor + 7) / 8;
+        // **On Microsoft a base that leads with a zero-sized subobject goes a byte
+        // past one that ends with one** - cl lays `struct A : E1, E2 { int x; }`
+        // with E2 at 1 and x at 4, where Itanium puts both empties at 0.
+        if (target_.microsoftNames() && prevBase != nullptr &&
+            prevBase->endsWithZeroSized() && b->leadsWithZeroSized())
+            byteCursor++;
         // **The same refusal the member list gets, one base earlier.** The sum of the
         // bases is measured in `long long` where `at` is an `int`, so a third huge
         // base wrapped it negative and every later number came from the wreck.
@@ -262,8 +300,25 @@ const Type *Parser::structOrUnionSpecifier(Kind kind, bool isClass) {
                            "compiler can lay out: its bases need " +
                            std::to_string(basesEnd) + " bytes, past the "
                            "2147483647 an object here is measured in");
-        const int at = static_cast<int>(alignTo(static_cast<int>(byteCursor),
-                                                b->align(target_)));
+        int at = static_cast<int>(alignTo(static_cast<int>(byteCursor),
+                                          b->align(target_)));
+        // **Itanium puts an empty base at 0**, and only where an empty subobject of
+        // the same type is there already does it go to the cursor and on, by its
+        // alignment, until nothing of its type is under it. It claims no data.
+        if (!target_.microsoftNames()) {
+            const bool emptyBase = b->dataSize() == 0 && !b->hasVptr();
+            if (emptyBase && !Conflict::at(empties, b, 0)) at = 0;
+            else while (Conflict::at(empties, b, at)) at += b->align(target_);
+            if (emptyBase) {
+                if (at + b->size(target_) > sizeFloor) sizeFloor = at + b->size(target_);
+                Conflict::add(empties, b, at);
+                baseAt[bi] = at;
+                if (b->align(target_) > widest) widest = b->align(target_);
+                prevBase = b;
+                continue;
+            }
+        }
+        Conflict::add(empties, b, at);
 
         const std::vector<Member> &inherited = b->members();
         for (std::size_t i = 0; i < inherited.size(); i++) {
@@ -280,6 +335,9 @@ const Type *Parser::structOrUnionSpecifier(Kind kind, bool isClass) {
             members.push_back(m);
         }
         baseAt[bi] = at;
+        endsZero = b->endsWithZeroSized();
+        if (!leadsKnown) { leadsZero = b->leadsWithZeroSized(); leadsKnown = true; }
+        prevBase = b;
 
         // The base's DATA size, not its sizeof - see Type::dataSize.
         bitCursor = static_cast<long long>(at + b->nvDataSize()) * 8;
@@ -983,6 +1041,29 @@ const Type *Parser::structOrUnionSpecifier(Kind kind, bool isClass) {
                 ((bitCursor > openEnd ? bitCursor : openEnd) + 7) / 8;
             long long at = (kind == Kind::Union) ? 0 : alignTo(byteCursor, a);
             refuseDuplicateMember(members, ownFrom, d.name, tag, d.pos);
+            {
+                // A class-typed member, or an array of them, hands its flag on; a
+                // scalar leaves the flag as it stood. On Itanium it also steps past
+                // any empty subobject of its own type, element by element.
+                const Type *element = slot;
+                long long count = 1;
+                while (element->isArray()) { count *= element->length(); element = element->pointee(); }
+                if (element->unqualified()->isStructOrUnion()) {
+                    endsZero = element->unqualified()->endsWithZeroSized();
+                    const int each = element->size(target_);
+                    if (!target_.microsoftNames() && kind != Kind::Union) {
+                        bool clash = true;
+                        while (clash) {
+                            clash = false;
+                            for (long long i = 0; i < count && !clash; i++)
+                                clash = Conflict::at(empties, element, static_cast<int>(at + i * each));
+                            if (clash) at += a;
+                        }
+                    }
+                    for (long long i = 0; i < count; i++)
+                        Conflict::add(empties, element, static_cast<int>(at + i * each));
+                }
+            }
             members.push_back(Member{ d.name, d.type, static_cast<int>(at), 0, 0,
                                       access, isMutable });
             // `int x = 5;` - C++11's initialiser on the member itself. The tokens stay
@@ -1145,8 +1226,9 @@ const Type *Parser::structOrUnionSpecifier(Kind kind, bool isClass) {
                        "the 2147483647 an object here is measured in");
     if (classAlign > widest) widest = classAlign;
     int size = static_cast<int>(alignTo((totalBits + 7) / 8, widest));
+    if (sizeFloor > size) size = static_cast<int>(alignTo(static_cast<int>(sizeFloor), widest));
     int align = widest;
-    if (members.empty() && totalBits == 0) { size = 1; align = 1; }
+    if (members.empty() && totalBits == 0 && sizeFloor == 0) { size = 1; align = 1; }
     if (classAlign > align) { align = classAlign; size = static_cast<int>(alignTo(size, align)); }
     // **An empty class has sizeof 1 and a data size of 0**, which is the empty base
     // optimisation Itanium requires and both oracles do. **And tail padding is reused
@@ -1157,6 +1239,10 @@ const Type *Parser::structOrUnionSpecifier(Kind kind, bool isClass) {
                           !podForLayout(type);
     type->setDataSize(noData ? 0
                       : mayReuse ? static_cast<int>(unpadded) : size);
+    // A zero-sized class both ends and leads with one, whatever its bases said.
+    type->setZeroSized(noData || endsZero, noData || leadsZero);
+    if (noData) empties.push_back(Type::EmptyAt{ type, 0 });
+    type->setEmptySubobjects(empties);
     type->complete(members, size, align);
     // Held bodies are read now, with the class complete: every member exists,
     // so a body may name one declared below it. Taken out of the vector first,

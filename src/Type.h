@@ -298,6 +298,18 @@ public:
     // only this much, or the diamond holds three copies of V.
     int nvDataSize() const { return nvDataSize_ ? nvDataSize_ : dataSize(); }
     void setNvDataSize(int n) { nvDataSize_ = n; }
+    // **cl's two layout flags**: whether the last base or class-typed member laid
+    // carried a zero-sized subobject, and whether the first base did, or the class
+    // itself is zero-sized. Where the two meet, the second base is pushed a byte.
+    bool endsWithZeroSized() const { return cls().endsWithZeroSized_; }
+    bool leadsWithZeroSized() const { return cls().leadsWithZeroSized_; }
+    void setZeroSized(bool ends, bool leads) { endsWithZeroSized_ = ends; leadsWithZeroSized_ = leads; }
+    // **Itanium's conflict list**: every empty subobject in this class, with its
+    // offset, the class itself at 0 when it is empty. An empty base goes to 0
+    // unless one of these of the same type is there, and then to the cursor.
+    struct EmptyAt { const Type *type; int offset; };
+    const std::vector<EmptyAt> &emptySubobjects() const { return cls().emptySubobjects_; }
+    void setEmptySubobjects(const std::vector<EmptyAt> &e) { emptySubobjects_ = e; }
 
     // **Where this class's own vbptr sits, on the Microsoft ABI.**
     int vbptrOffset() const { return cls().vbptrOffset_; }
@@ -435,6 +447,9 @@ private:
     bool hasDestructor_ = false;
     std::vector<BaseSpec> bases_;
     int nvDataSize_ = 0;
+    bool endsWithZeroSized_ = false;
+    bool leadsWithZeroSized_ = false;
+    std::vector<EmptyAt> emptySubobjects_;
     const Type *primaryBase_ = nullptr;
     int vbptrOffset_ = -1;
     const Type *vbptrOwner_ = nullptr;

@@ -10070,10 +10070,10 @@ CCS 7.4 on the Windows box assembling all 296 and linking every one** through
 Thirty-four goldens changed: the terminate scope, the dead closures leaving,
 and every case with a static local taking its new symbol.
 
-## The seam with cl: a constructor's RAX, the order of overloaded slots, and a prototype's parameter
+## The seam with cl: a constructor's RAX, the order of overloaded slots, a prototype's parameter, and empty bases
 
-**All three from the review of 2026-09-17 against cl (`VM6747/CXX1I-REVIEW-2026-09-17.md`,
-A1, A2 and A3); A1 and A3 invisible to anything compiled by cxx1 alone** - which
+**All four from the review of 2026-09-17 against cl (`VM6747/CXX1I-REVIEW-2026-09-17.md`,
+A1 to A4); A1, A3 and A4 invisible to anything compiled by cxx1 alone** - which
 is why every suite was green while a program half compiled by cl crashed.
 `tests/winlink/` is the answer to that: two-half programs, the a-half by
 cxx1 and the b-half by cl and then the reverse, linked and run by
@@ -10120,6 +10120,30 @@ what the loop pushed; `by-value-declared-first.cpp` counts constructions and
 destructions across the three shapes (declared then defined, another
 function's prototype ahead of a definition, a two-by-value prototype ahead
 of one with nothing to destroy). One emission changed in the golden: its own.
+
+**A4. Where an empty base goes, on each ABI.** cxx1 laid every empty base at
+the cursor. cl pads: a class *ends with* a zero-sized subobject when the last
+base or class-typed member laid did (a scalar after it changes nothing) and
+*leads with* one when its first base did, both when it is itself zero-sized;
+a base that leads with one goes a byte past a base that ends with one. So
+`struct A3 : E1, E2 { int x; }` has E2 at 1 and x at 4, `struct L : NE, E1,
+E2 {}` is 8 bytes with E2 at 5, `struct Y : X, E2` pads before E2 because
+`X : NE, E1 {}` ends with E1, and `struct Z4 { NE m; V v; NE k; }` does not
+end with one though `V : E1 { int n; }` does. Two flags on the Type, set as
+the class is laid, exactly clang's MicrosoftRecordLayoutBuilder pair.
+Measured with cl over 68 numbers (`empty-bases-adjacent.cpp`, `N(itanium,
+microsoft)` per line), all now agreeing. The same measurement showed the
+Itanium half wrong too: clang puts an empty base at 0 and only where an
+empty subobject of the same type is there already moves it to the cursor
+and on by its alignment (`struct CC : E1, C1 { int x; }` has C1 at 1 and x
+at 0), claiming no data but stretching sizeof; cxx1 put it at the cursor, so
+`(E1 *)&a7` disagreed with clang on every Itanium target. Every class now
+carries its list of empty subobjects (itself at 0 when empty) and a base or
+class-typed member steps past a clash. Also found: cl lays every base with a
+vfptr first, wherever it was written (`struct PX : E1, PV` has PV at 0), and
+cxx1 refused that only when the class added a virtual of its own; the layout
+now refuses it by name for any polymorphic base that is not the first. No
+suite emission changed on any target.
 
 Measured on the four sandboxes at the close of A1/A3: Mac 496 / 1187 / 306 / 30, the
 tms6747 emissions byte-identical to the golden recorded at 3c1130a (so the
