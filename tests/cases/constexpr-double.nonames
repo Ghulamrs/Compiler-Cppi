@@ -1,0 +1,3 @@
+x86_64-linux  `d`, `e` and `f` are constexpr doubles at namespace scope, which clang folds into every use and never lays down as objects, where cxx1 emits them as the internal-linkage objects they declare; nothing links against them, and every use in this case reads the folded value, or the static_asserts would not have held.
+x86_64-windows  the same three, as cl's `d`, `e` and `f`.
+arm64-darwin  the same three, with Mach-O's leading underscore.

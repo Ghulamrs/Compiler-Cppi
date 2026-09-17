@@ -442,7 +442,7 @@ void Parser::topLevel(Program &program) {
                         constantDoubleKnown = true;
                     }
                 }
-                if (!constantKnown && quals.isConstexpr)
+                if (!constantKnown && !constantDoubleKnown && quals.isConstexpr)
                     src_.fail(d.pos, "'" + d.name + "' is 'constexpr', so its "
                                      "value has to be known while this is "
                                      "compiled, and this initialiser is not a "

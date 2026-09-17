@@ -1830,6 +1830,9 @@ private:
     // it. The empty pair is value-initialisation and parseInitialiser takes it.
     bool atBracedInitialiser(const std::string &name);
     bool constantInitialiser(const Type *t, const Init &in, long long *out) const;
+    bool constantFloatingInitialiser(const Type *t, const Init &in,
+                                     long double *out) const;
+    bool foldFloating(const Expr &e, long double *out) const;
 
     // **A `constexpr` function, kept so that fold() can run it.** [dcl.constexpr] in
     // C++11 lets the body be one return statement, which makes evaluating a call an

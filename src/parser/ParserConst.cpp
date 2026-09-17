@@ -171,16 +171,34 @@ bool Parser::fold(const Expr &e, long long *out, std::size_t pos) const {
         return true;
     }
 
+    // **[expr.const] has a floating lane, and this fold answers in integers**,
+    // so a floating operand goes to foldDouble where an integer comes out of
+    // it - a cast, a comparison, `!` - and a floating result stays its own.
     if (const Cast *c = dynamic_cast<const Cast *>(&e)) {
         long long v;
-        if (!fold(c->value(), &v, pos)) return false;
         if (!e.type()->isInteger()) return false;
+        if (c->value().type() != nullptr && c->value().type()->isFloating()) {
+            long double d = 0;
+            if (!foldFloating(c->value(), &d)) return false;
+            v = e.type()->isSigned(target_)
+              ? static_cast<long long>(d)
+              : static_cast<long long>(static_cast<unsigned long long>(d));
+        } else if (!fold(c->value(), &v, pos)) {
+            return false;
+        }
         *out = narrowTo(v, e.type());
         return true;
     }
 
     if (const Unary *u = dynamic_cast<const Unary *>(&e)) {
         long long v;
+        if (u->op() == '!' && u->operand().type() != nullptr &&
+            u->operand().type()->isFloating()) {
+            long double d = 0;
+            if (!foldFloating(u->operand(), &d)) return false;
+            *out = d == 0;
+            return true;
+        }
         if (!fold(u->operand(), &v, pos)) return false;
         switch (u->op()) {
         case '-': *out = static_cast<long long>(0ULL - static_cast<unsigned long long>(v)); return true;
@@ -199,6 +217,25 @@ bool Parser::fold(const Expr &e, long long *out, std::size_t pos) const {
 
     if (const Binary *b = dynamic_cast<const Binary *>(&e)) {
         long long l, r;
+        const Type *lt = b->lhs().type();
+        const Type *rt = b->rhs().type();
+        if ((lt != nullptr && lt->isFloating()) ||
+            (rt != nullptr && rt->isFloating())) {
+            long double dl = 0, dr = 0;
+            if (!foldFloating(b->lhs(), &dl) || !foldFloating(b->rhs(), &dr))
+                return false;
+            switch (b->op()) {
+            case BinOp::Eq: *out = (dl == dr); return true;
+            case BinOp::Ne: *out = (dl != dr); return true;
+            case BinOp::Lt: *out = (dl <  dr); return true;
+            case BinOp::Le: *out = (dl <= dr); return true;
+            case BinOp::Gt: *out = (dl >  dr); return true;
+            case BinOp::Ge: *out = (dl >= dr); return true;
+            case BinOp::LAnd: *out = (dl != 0 && dr != 0); return true;
+            case BinOp::LOr:  *out = (dl != 0 || dr != 0); return true;
+            default: return false;
+            }
+        }
         if (!fold(b->lhs(), &l, pos) || !fold(b->rhs(), &r, pos)) return false;
 
         const Type *t = b->lhs().type();
@@ -269,6 +306,22 @@ bool Parser::constantInitialiser(const Type *t, const Init &in,
     if (t == nullptr || !t->isConst() || !t->isInteger()) return false;
     if (in.isList || in.value == nullptr) return false;
     return fold(*in.value, out, in.pos);
+}
+
+// The floating twin: a const floating object with a foldable initialiser is
+// read back by foldDouble, an integer one being widened on the way in.
+bool Parser::constantFloatingInitialiser(const Type *t, const Init &in,
+                                         long double *out) const {
+    if (t == nullptr || !t->isConst() || !t->isFloating()) return false;
+    if (in.isList || in.value == nullptr) return false;
+    return foldFloating(*in.value, out);
+}
+
+// foldDouble with its two host-precision flags folded away: an answer is an
+// answer here, as it is for the integer lane.
+bool Parser::foldFloating(const Expr &e, long double *out) const {
+    bool past53 = false, x87 = false;
+    return foldDouble(e, target_, out, &past53, &x87);
 }
 
 long long Parser::narrowTo(long long v, const Type *t) const {

@@ -382,9 +382,14 @@ StmtPtr Parser::declarationBody() {
         locals_.back().guardsJump = hasInit || destructorOf(d.type) != nullptr;
         if (hasInit) {
             long long value = 0;
+            long double dvalue = 0;
             if (constantInitialiser(d.type, in, &value)) {
                 locals_.back().isConstantValue = true;
                 locals_.back().constantValue = value;
+            } else if (constantFloatingInitialiser(d.type, in, &dvalue)) {
+                // A const floating local reads back the same way a global does.
+                locals_.back().isConstantDouble = true;
+                locals_.back().constantDouble = dvalue;
             } else if (quals.isConstexpr) {
                 src_.fail(d.pos, "'" + d.name + "' is 'constexpr', so its value "
                                  "has to be known while this is compiled, and "
