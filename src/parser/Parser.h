@@ -113,6 +113,8 @@ private:
         bool pure = false;
     };
     std::map<std::string, std::vector<VSlot> > vtables_;
+    // Where a class's own new slots begin, after its primary base's - the Microsoft overload order is kept within that run only.
+    std::map<std::string, std::size_t> ownSlotsFrom_;
     // Whether a slot is the one a member with this name and parameter list overrides.
     // Three places ask it - the slot search, the search across the bases after the
     // first, and the secondary table's walk - and the third copy is why it is named.

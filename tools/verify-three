@@ -97,6 +97,9 @@ if [ "$WHICH" = all ] || [ "$WHICH" = windows ]; then
     # so the directory goes first.
     ssh -o BatchMode=yes "$WINDOWS" "rmdir /s /q $REMOTE 2>nul & mkdir $REMOTE && tar -C $REMOTE -xzf C:\\cxx1\\src.tgz" >/dev/null || STATUS=1
     ssh -o BatchMode=yes "$WINDOWS" "$REMOTE\\tools\\windows\\run-cases.cmd $REMOTE" || STATUS=1
+    # The two-half programs, linked across the boundary with cl both ways:
+    # the ABI at the seam, which nothing compiled by cxx1 alone can see.
+    ssh -o BatchMode=yes "$WINDOWS" "$REMOTE\\tools\\windows\\winlink-check.cmd $REMOTE" || STATUS=1
 
     # The comparison happens here, not there - see run-cases.cmd for why.
     OUT=$(mktemp -d)
@@ -134,6 +137,24 @@ if [ "$WHICH" = all ] || [ "$WHICH" = windows ]; then
     # that the compiler stopped, and that its message contains the recorded
     # text - because a refusal that stops for the wrong reason is not the one
     # the case is about.
+    for e in "$ROOT"/tests/winlink/*.expected; do
+        [ -f "$e" ] || continue
+        n=$(basename "$e" .expected)
+        case "$n" in *" "[0-9]*) continue;; esac
+        for way in ab ba; do
+            got="$OUT/winout/winlink-$n-$way.out"
+            if [ ! -f "$got" ]; then
+                echo "  winlink $n ($way): did not run"; fail=$((fail + 1)); continue
+            fi
+            if tr -d '\r' < "$got" | cmp -s - "$e"; then
+                pass=$((pass + 1))
+            else
+                echo "  winlink $n ($way): output differs"
+                tr -d '\r' < "$got" | diff - "$e" | head -6
+                fail=$((fail + 1))
+            fi
+        done
+    done
     for e in "$ROOT"/tests/cases/*.error; do
         n=$(basename "$e" .error)
         case "$n" in *" "[0-9]*) continue;; esac   # the copies again

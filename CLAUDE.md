@@ -10070,6 +10070,50 @@ CCS 7.4 on the Windows box assembling all 296 and linking every one** through
 Thirty-four goldens changed: the terminate scope, the dead closures leaving,
 and every case with a static local taking its new symbol.
 
+## The seam with cl: a constructor's RAX and the order of overloaded slots
+
+**Both from the review of 2026-09-17 against cl (`VM6747/CXX1I-REVIEW-2026-09-17.md`,
+A1 and A3), and both invisible to anything compiled by cxx1 alone** - which
+is why every suite was green while a program half compiled by cl crashed.
+`tests/winlink/` is the answer to that: two-half programs, the a-half by
+cxx1 and the b-half by cl and then the reverse, linked and run by
+`tools/windows/winlink-check.cmd` and compared by verify-three's Windows leg.
+A single-file case cannot join this list; the seam is the point.
+
+**A1. On Microsoft a constructor returns `this` in RAX, and cl's callers use
+it.** Measured: cl's `NT::NT(int)` ends `mov rax, this$[rsp]`, and its `mk`
+returns `new V(4)`'s constructor RAX as it stands - `call ??0V@@QEAA@H@Z` /
+`mov tv73[rsp], rax` / `mov rax, tv73[rsp]` / `ret`. cxx1's every non-sret
+function ended `mov $0, %rax`, so a cl caller of a cxx1 constructor held a
+null. The function end in `X86_64Linux::emit` now reloads the spilled `this`
+into RAX after the return label, for every exit, when the ABI is positional
+and the symbol is `??0` (a constructor) or `??_G`/`??_E` (a deleting
+destructor, which cl also has return `this`; cxx1's already does, by its
+`return this`). The plain destructor does not return it and cl's callers do
+not read it. Itanium untouched.
+
+**A3. cl groups a class's own overloads of one name at the first one's
+vftable slot, latest first.** Measured with `g(int) g(double) h() g(char)
+k() k(int) k(double) m()`: cl lays `~ vf g(char) g(double) g(int) h k(double)
+k(int) k() m` - the three `g`s together at `g(int)`'s position with `h`
+after them though `g(char)` was declared after `h`; and in a derived class,
+a new overload of an *inherited* name is not grouped with the base's slot
+but with the class's own run (`Der : Base{f(int)}` adding `n() f(double)
+f(int) n(int) f(char)` lays `n(int) n() f(char) f(double)` after the base's
+part). cxx1 appended in declaration order, so `g(int)` called across the
+seam reached `g(double)`. `declareMember` now inserts a new Microsoft
+virtual before the first slot of its name within the class's own run
+(`ownSlotsFrom_`, recorded where the primary base's table is copied) and
+appends otherwise; every call finds its slot by name and parameters, so
+nothing else moved. Both probe tables now match cl's word for word.
+
+Measured on the four sandboxes at the close: Mac 496 / 1187 / 306 / 30, the
+tms6747 emissions byte-identical to the golden recorded at 3c1130a (so the
+emulator and cl6x answer as before; 138 goldens changed, every one
+x86_64-windows, every one a `this` reload or a `.quad` reorder); Linux 496
+and 1187 under g++; Windows 465 under cl - the 461 cases and both directions
+of both pairs - and 190 names agreeing.
+
 ## Build
 
 ```

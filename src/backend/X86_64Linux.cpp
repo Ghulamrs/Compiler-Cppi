@@ -1565,6 +1565,14 @@ void X86_64Linux::emit(const Function &fn) {
     else if (fn.returns()->isFloating())    a_->ins("pxor", reg("%xmm0"), reg("%xmm0"));
     else                                    a_->ins("mov", immText("0"), reg("%rax"));
     a_->defLabel(returnLabel_);
+    // **A Microsoft constructor or deleting destructor returns `this` in
+    // RAX**, and cl's callers read it - `new V(4)` hands back the constructor's
+    // RAX as it stands. Measured 2026-09-17; after the label, for every path.
+    if (abi_.positional && fn.hasThis() && !ps.empty() &&
+        (fn.symbol().compare(0, 3, "??0") == 0 ||
+         fn.symbol().compare(0, 4, "??_G") == 0 ||
+         fn.symbol().compare(0, 4, "??_E") == 0))
+        a_->ins("mov", local(ps[0].offset), reg("%rax"));
     // **rsp is restored *from rbp*, never by adding to itself.** Resuming after a
     // catch it holds whatever the runtime left, and adding the frame size landed
     // on the unwind-help slot, so `ret` took -2. The renderer adds the size.

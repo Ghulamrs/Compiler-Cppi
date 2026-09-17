@@ -288,8 +288,10 @@ const Type *Parser::structOrUnionSpecifier(Kind kind, bool isClass) {
         // in this class replaces one rather than appending - declareMember
         // does that.
         const bool atZero = primary != nullptr ? b == primary : bi == 0;
-        if (!tag.empty() && atZero && b->polymorphic())
+        if (!tag.empty() && atZero && b->polymorphic()) {
             vtables_[tag] = vtables_[b->tag()];
+            ownSlotsFrom_[tag] = vtables_[tag].size();
+        }
     }
     // Recorded in the order written, whatever order they were laid in: the
     // constructor and the destructor walk this list.

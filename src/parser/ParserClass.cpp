@@ -3326,7 +3326,17 @@ void Parser::declareMember(const std::string &cls, const Declared &d,
         slots[slot].pure = isPure;
         return;
     }
-    slots.push_back(VSlot{ d.name, entry, params, constThis, isPure });
+    // **cl groups a class's own overloads of one name at the first one's
+    // slot, latest first** - `g(int) g(double) h() g(char)` lays `g(char)
+    // g(double) g(int) h()`, measured 2026-09-17 - where Itanium appends.
+    std::size_t at = slots.size();
+    if (target_.microsoftNames()) {
+        std::map<std::string, std::size_t>::const_iterator own = ownSlotsFrom_.find(cls);
+        for (std::size_t i = own == ownSlotsFrom_.end() ? 0 : own->second; i < slots.size(); i++)
+            if (slots[i].name == d.name) { at = i; break; }
+    }
+    slots.insert(slots.begin() + static_cast<std::ptrdiff_t>(at),
+                 VSlot{ d.name, entry, params, constThis, isPure });
 }
 
 // A member function's linkage name. Never plain, and never affected by

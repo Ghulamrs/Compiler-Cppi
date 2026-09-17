@@ -1,0 +1,11 @@
+Programs in two halves, linked across the boundary with cl.
+
+Each case is <name>-a.cpp, <name>-b.cpp, a shared <name>.h, and <name>.expected.
+tools/windows/winlink-check.cmd compiles the a-half with cxx1 and the b-half
+with cl, links them, runs the program, and then does it the other way round;
+tools/verify-three compares both outputs with the .expected on the Mac. A case
+here passes only if the two compilers agree on the ABI they meet at: what a
+constructor leaves in RAX, which slot of a vftable an overload occupies, how a
+struct comes back. Nothing compiled entirely by cxx1 can see those, which is
+why the single-file suite was green while the review of 2026-09-17 found A1
+and A3. Both halves must be programs both compilers accept.
