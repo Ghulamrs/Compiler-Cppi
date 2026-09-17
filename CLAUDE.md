@@ -10070,10 +10070,10 @@ CCS 7.4 on the Windows box assembling all 296 and linking every one** through
 Thirty-four goldens changed: the terminate scope, the dead closures leaving,
 and every case with a static local taking its new symbol.
 
-## The seam with cl: a constructor's RAX, the order of overloaded slots, a prototype's parameter, and empty bases
+## The seam with cl: a constructor's RAX, overloaded slots, a prototype's parameter, empty bases, pragma pack
 
-**All four from the review of 2026-09-17 against cl (`VM6747/CXX1I-REVIEW-2026-09-17.md`,
-A1 to A4); A1, A3 and A4 invisible to anything compiled by cxx1 alone** - which
+**All from the review of 2026-09-17 against cl (`VM6747/CXX1I-REVIEW-2026-09-17.md`,
+A1 to A5); A1, A3 and A4 invisible to anything compiled by cxx1 alone** - which
 is why every suite was green while a program half compiled by cl crashed.
 `tests/winlink/` is the answer to that: two-half programs, the a-half by
 cxx1 and the b-half by cl and then the reverse, linked and run by
@@ -10144,6 +10144,22 @@ vfptr first, wherever it was written (`struct PX : E1, PV` has PV at 0), and
 cxx1 refused that only when the class added a virtual of its own; the layout
 now refuses it by name for any polymorphic base that is not the first. No
 suite emission changed on any target.
+
+**A5. `#pragma pack` was read and dropped.** The preprocessor kept `once`
+and swallowed the rest, so a packed wire format compiled clean at its natural
+size. Now `pragmaPack` reads cl's forms - `pack(n)` with n 1/2/4/8/16,
+`pack()`, `pack(push [, id] [, n])`, `pack(pop [, id])` to the named push or
+the last, `pack(show)` - and records the value in force against the next
+output line (`Source::Pack`, `packAt(pos)`); the class layout asks at its
+keyword and caps every alignment it reads at it: members, bit-field units,
+bases, virtual bases, and so the class's own alignment and its size rounding.
+A class defined outside a packed region keeps its natural layout inside one
+(the member's alignment is capped, not its insides). `pragma-pack.cpp`: 22
+numbers, cl and clang agree on every one. The C6000 refuses a class under
+pack by name (`Target::loadsUnaligned`): its LDW faults on a misaligned word
+and the backend emits no LDNW - the emulator showed the fault first - and
+cl6x has no `#pragma pack` at all. `tests/tms6747.sh` now honours a
+`.notarget` naming tms6747, as run.sh does for the host.
 
 Measured on the four sandboxes at the close of A1/A3: Mac 496 / 1187 / 306 / 30, the
 tms6747 emissions byte-identical to the golden recorded at 3c1130a (so the

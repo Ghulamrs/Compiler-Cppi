@@ -1086,14 +1086,87 @@ void Preprocessor::directive(const std::string &line, int fileIndex, int lineNo)
 
     if (what == "pragma") {
         // The file that wrote it is not read again, whoever includes it next.
-        if (trim(rest) == "once" && fileIndex >= 0 &&
+        const std::string p = trim(rest);
+        if (p == "once" && fileIndex >= 0 &&
             static_cast<std::size_t>(fileIndex) < files_.size())
             pragmaOnce_.insert(canonicalPath(files_[fileIndex]));
+        else if (p.compare(0, 4, "pack") == 0 &&
+                 (p.size() == 4 || p[4] == '(' || std::isspace(static_cast<unsigned char>(p[4]))))
+            pragmaPack(trim(p.substr(4)), fileIndex, lineNo, line, nameStart);
         return;
     }
     if (what.empty()) return;
 
     fail(fileIndex, lineNo, line, nameStart, "unknown directive '#" + what + "'");
+}
+
+// **`#pragma pack` is the one pragma that changes what a program computes**, and
+// it was read and dropped (review of 2026-09-17 against cl, A5). cl's forms are
+// read; the value in force is recorded against the next output line.
+void Preprocessor::pragmaPack(const std::string &args, int fileIndex, int lineNo,
+                              const std::string &line, std::size_t nameStart) {
+    if (args.size() < 2 || args[0] != '(' || args[args.size() - 1] != ')')
+        fail(fileIndex, lineNo, line, nameStart,
+             "'#pragma pack' takes its arguments in parentheses: pack(n), pack(), "
+             "pack(push, n), pack(pop)");
+    std::vector<std::string> words;
+    std::string inner = args.substr(1, args.size() - 2), w;
+    for (std::size_t i = 0; i <= inner.size(); i++) {
+        if (i == inner.size() || inner[i] == ',') { w = trim(w); if (!w.empty() || i < inner.size()) words.push_back(w); w.clear(); }
+        else w += inner[i];
+    }
+    struct Value {
+        static bool of(const std::string &t, int *n) {
+            if (t.empty()) return false;
+            for (std::size_t i = 0; i < t.size(); i++)
+                if (!std::isdigit(static_cast<unsigned char>(t[i]))) return false;
+            *n = std::atoi(t.c_str());
+            return *n == 1 || *n == 2 || *n == 4 || *n == 8 || *n == 16;
+        }
+    };
+    int n = 0;
+    std::size_t wi = 0;
+    if (words.empty()) pack_ = 0;
+    else if (words[0] == "show") return;
+    else if (words[0] == "push" || words[0] == "pop") {
+        const bool push = words[0] == "push";
+        std::string id;
+        wi = 1;
+        if (wi < words.size() && !Value::of(words[wi], &n)) id = words[wi++];
+        if (push) {
+            packStack_.push_back(std::make_pair(id, pack_));
+            if (wi < words.size()) {
+                if (!Value::of(words[wi], &n))
+                    fail(fileIndex, lineNo, line, nameStart,
+                         "'#pragma pack(push, " + words[wi] + ")' - the packing is 1, 2, 4, 8 or 16");
+                pack_ = n;
+                wi++;
+            }
+        } else {
+            if (wi < words.size())
+                fail(fileIndex, lineNo, line, nameStart,
+                     "'#pragma pack(pop, " + words[wi] + ")' takes only an identifier after pop");
+            // pop to the named push, or the last one; an empty stack changes nothing.
+            std::size_t to = packStack_.size();
+            if (!id.empty()) {
+                to = 0;
+                for (std::size_t i = packStack_.size(); i > 0; i--)
+                    if (packStack_[i - 1].first == id) { to = i; break; }
+            }
+            if (to != 0) {
+                pack_ = packStack_[to - 1].second;
+                packStack_.resize(to - 1);
+            }
+        }
+        if (wi < words.size())
+            fail(fileIndex, lineNo, line, nameStart,
+                 "'#pragma pack' has more after '" + words[wi - 1] + "' than the form takes");
+    } else if (words.size() == 1 && Value::of(words[0], &n)) pack_ = n;
+    else
+        fail(fileIndex, lineNo, line, nameStart,
+             "'#pragma pack(" + inner + ")' is not a form this compiler reads: pack(n) with n "
+             "1, 2, 4, 8 or 16, pack(), pack(push [, id] [, n]), pack(pop [, id])");
+    packs_.push_back(Source::Pack{ lines_.size(), pack_ });
 }
 
 void Preprocessor::processFile(const std::string &path, int fileIndex) {
@@ -1156,5 +1229,7 @@ Source Preprocessor::run() {
 
     files_.push_back(path_);
     processFile(path_, 0);
-    return Source(path_, out_, files_, lines_);
+    Source src(path_, out_, files_, lines_);
+    src.setPacks(packs_);
+    return src;
 }

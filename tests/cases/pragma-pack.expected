@@ -1,0 +1,23 @@
+sizeof P1 ok
+P1.i ok
+P1.s ok
+sizeof P1b ok
+sizeof P2 ok
+P2.d ok
+sizeof P2b ok
+P2b.i ok
+sizeof N ok
+sizeof P4 ok
+P4.d ok
+sizeof P4in ok
+sizeof P4again ok
+sizeof N2 ok
+sizeof D ok
+D.d ok
+D.j ok
+sizeof Holds ok
+Holds.n ok
+sizeof Arr ok
+Arr.a ok
+sizeof AfterAll ok
+1 16909060 5 0 wrong

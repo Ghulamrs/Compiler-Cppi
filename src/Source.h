@@ -17,6 +17,12 @@ public:
         int file;
         int line;
     };
+    // **`#pragma pack` in force from an output line on**: 0 is none. The
+    // preprocessor records each change; the class layout asks at its keyword.
+    struct Pack {
+        std::size_t line;
+        int value;
+    };
 
     Source(std::string name, std::string text);
     Source(std::string name, std::string text, std::vector<std::string> files,
@@ -33,6 +39,8 @@ public:
     Place locate(std::size_t pos) const;
 
     const std::vector<std::string> &files() const { return files_; }
+    void setPacks(std::vector<Pack> packs) { packs_ = std::move(packs); }
+    int packAt(std::size_t pos) const;
 
     static Source fromFile(const std::string &path);
 
@@ -50,6 +58,7 @@ private:
     std::string text_;
     std::vector<std::string> files_;
     std::vector<Line> lines_;
+    std::vector<Pack> packs_;
 
     mutable std::vector<std::size_t> lineStarts_;
     void indexLines() const;

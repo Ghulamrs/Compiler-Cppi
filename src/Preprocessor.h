@@ -43,6 +43,13 @@ private:
     std::vector<std::string> files_;
     // **`#pragma once` - the include guard a file writes as a pragma.**
     std::set<std::string> pragmaOnce_;
+    // `#pragma pack`: the value in force, the push stack (name, value), and every
+    // change with the output line it takes effect from.
+    int pack_ = 0;
+    std::vector<std::pair<std::string, int> > packStack_;
+    std::vector<Source::Pack> packs_;
+    void pragmaPack(const std::string &args, int fileIndex, int lineNo,
+                    const std::string &line, std::size_t nameStart);
     std::vector<Source::Line> lines_;
 
     std::vector<Cond> conds_;

@@ -50,6 +50,17 @@ void Source::lineAt(std::size_t pos, int *line, std::size_t *start) const {
     *start = lineStarts_[lo];
 }
 
+int Source::packAt(std::size_t pos) const {
+    if (packs_.empty()) return 0;
+    int line;
+    std::size_t start;
+    lineAt(pos, &line, &start);
+    int value = 0;
+    for (std::size_t i = 0; i < packs_.size(); i++)
+        if (packs_[i].line < static_cast<std::size_t>(line)) value = packs_[i].value;
+    return value;
+}
+
 Source::Place Source::locate(std::size_t pos) const {
     if (pos > text_.size()) pos = text_.size();
 

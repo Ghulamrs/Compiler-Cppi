@@ -45,6 +45,16 @@ const Type *Parser::memberTypeWalk(const Type *t) {
 const Type *Parser::structOrUnionSpecifier(Kind kind, bool isClass) {
     const char *what = isClass ? "class" : (kind == Kind::Struct ? "struct" : "union");
     std::size_t pos = peek().pos;
+    // `#pragma pack(n)` in force here caps every alignment the layout reads.
+    const int pack = src_.packAt(pos);
+    if (pack != 0 && !target_.loadsUnaligned())
+        src_.fail(pos, std::string("this ") + what + " is under '#pragma pack(" +
+                       std::to_string(pack) + ")', and the C6000 backend loads words "
+                       "aligned only - a packed member is not supported for this "
+                       "target yet");
+    struct Packed {
+        static int to(int a, int cap) { return cap != 0 && a > cap ? cap : a; }
+    };
 
     // `struct alignas(16) S` - the class's own alignment, folded into the
     // layout below as if a member had asked for it.
@@ -292,28 +302,27 @@ const Type *Parser::structOrUnionSpecifier(Kind kind, bool isClass) {
         // **The same refusal the member list gets, one base earlier.** The sum of the
         // bases is measured in `long long` where `at` is an `int`, so a third huge
         // base wrapped it negative and every later number came from the wreck.
-        const long long basesEnd = (byteCursor + b->align(target_) - 1) /
-                                   b->align(target_) * b->align(target_) +
+        const int balign = Packed::to(b->align(target_), pack);
+        const long long basesEnd = (byteCursor + balign - 1) / balign * balign +
                                    b->dataSize();
         if (basesEnd > 2147483647LL)
             src_.fail(pos, std::string("this ") + what + " is larger than this "
                            "compiler can lay out: its bases need " +
                            std::to_string(basesEnd) + " bytes, past the "
                            "2147483647 an object here is measured in");
-        int at = static_cast<int>(alignTo(static_cast<int>(byteCursor),
-                                          b->align(target_)));
+        int at = static_cast<int>(alignTo(static_cast<int>(byteCursor), balign));
         // **Itanium puts an empty base at 0**, and only where an empty subobject of
         // the same type is there already does it go to the cursor and on, by its
         // alignment, until nothing of its type is under it. It claims no data.
         if (!target_.microsoftNames()) {
             const bool emptyBase = b->dataSize() == 0 && !b->hasVptr();
             if (emptyBase && !Conflict::at(empties, b, 0)) at = 0;
-            else while (Conflict::at(empties, b, at)) at += b->align(target_);
+            else while (Conflict::at(empties, b, at)) at += balign;
             if (emptyBase) {
                 if (at + b->size(target_) > sizeFloor) sizeFloor = at + b->size(target_);
                 Conflict::add(empties, b, at);
                 baseAt[bi] = at;
-                if (b->align(target_) > widest) widest = b->align(target_);
+                if (balign > widest) widest = balign;
                 prevBase = b;
                 continue;
             }
@@ -341,7 +350,7 @@ const Type *Parser::structOrUnionSpecifier(Kind kind, bool isClass) {
 
         // The base's DATA size, not its sizeof - see Type::dataSize.
         bitCursor = static_cast<long long>(at + b->nvDataSize()) * 8;
-        if (b->align(target_) > widest) widest = b->align(target_);
+        if (balign > widest) widest = balign;
         // The base at offset 0 hands its slots down in order, and an override
         // in this class replaces one rather than appending - declareMember
         // does that.
@@ -762,7 +771,7 @@ const Type *Parser::structOrUnionSpecifier(Kind kind, bool isClass) {
                 // **A zero-width bitfield does not raise the class's alignment on
                 // Itanium**, whatever its type: `{char a; int :0; char b;}` is 5
                 // bytes aligned 1 there and 2 aligned 1 on Microsoft.
-                int a = base->align(target_);
+                int a = Packed::to(base->align(target_), pack);
                 if (a > widest && w != 0) widest = a;
                 if (w == 0) {
                     // Itanium rounds the cursor to the next unit of this type, which
@@ -869,7 +878,7 @@ const Type *Parser::structOrUnionSpecifier(Kind kind, bool isClass) {
                                     " bits, which does not fit in '" +
                                     d.type->describe() + "'");
 
-                int a = d.type->align(target_);
+                int a = Packed::to(d.type->align(target_), pack);
                 if (a > widest) widest = a;
 
                 long long at, bitOff;
@@ -1031,7 +1040,7 @@ const Type *Parser::structOrUnionSpecifier(Kind kind, bool isClass) {
             // declared type stays the reference, which makes every read dereference.
             const Type *slot = d.type->isReference()
                              ? types_.pointerTo(d.type->referent()) : d.type;
-            int a = slot->align(target_);
+            int a = Packed::to(slot->align(target_), pack);
             refuseWeakAlignas(mquals.alignAs, slot, d.pos);
             if (mquals.alignAs > a) a = mquals.alignAs;
             if (a > widest) widest = a;
@@ -1192,8 +1201,8 @@ const Type *Parser::structOrUnionSpecifier(Kind kind, bool isClass) {
     for (std::size_t bi = 0; bi < vbases.size(); bi++) {
         const Type *b = vbases[bi];
         const long long byteCursor = (totalBits + 7) / 8;
-        const int at = static_cast<int>(alignTo(static_cast<int>(byteCursor),
-                                                b->align(target_)));
+        const int balign = Packed::to(b->align(target_), pack);
+        const int at = static_cast<int>(alignTo(static_cast<int>(byteCursor), balign));
         const std::vector<Member> &inherited = b->members();
         for (std::size_t i = 0; i < inherited.size(); i++) {
             Member m = inherited[i];
@@ -1210,7 +1219,7 @@ const Type *Parser::structOrUnionSpecifier(Kind kind, bool isClass) {
         }
         type->setBaseOffset(nonVirtualBases + bi, at);
         totalBits = static_cast<long long>(at + b->nvDataSize()) * 8;
-        if (b->align(target_) > widest) widest = b->align(target_);
+        if (balign > widest) widest = balign;
     }
 
     // **An empty class is legal in C++ and has size 1**, so that two objects of it
