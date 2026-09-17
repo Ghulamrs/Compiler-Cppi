@@ -9953,6 +9953,111 @@ fix, and put the story in the section of this file that owns the subject. A
 comment that wants a fourth line is a sign the story belongs here instead -
 and `make comments` will say so either way.
 
+## The register's last five, 2026-09-17
+
+**`tests/open` held five programs at the close of the virtual-inheritance
+round, all front-end or exception work, and all five closed in one sitting.**
+Each is in `tests/cases` now with its `.expected`; the register holds one
+entry, found while closing them. Smallest first, which was the order asked:
+
+**A mem-initialiser naming a template-id base** - `D(int x) : P<int>(x) {}`.
+The list read its entry with `expectIdent` and stopped at the `<` with
+"expected '('". The base-clause had already solved the same problem
+("Read the base as a type rather than as a name", `specifiers()` behind
+`atTypeName()`), so the list now takes that path when a name - qualified or
+not - is followed by `<`, and matches the base by its unqualified type. A
+member is never spelt with a `<`, so nothing else changes. Qualified, virtual
+and out-of-order template-id bases all agree with clang; a template-id that
+is not a base is still refused as neither member nor base.
+
+**Class-scope names inside a lambda.** `[]() { return k + (int)E; }` in
+`S::f()`, `k` a static member and `E` an enumerator, was "'k' was not
+declared": the body is replayed as the closure's call operator, and
+`currentClass_` is then the closure, which declares none of it. `closureOuter_`
+already mapped a closure to the class it captured `this` from - but only when
+it did. `closureScope_` records the class every closure was written in, a
+lambda inside a lambda inheriting the outer one's, and `lambdaScope()` is
+asked after the closure by the four lookups that mean class scope: statics,
+static member calls by bare name, enumerators (`findClassEnum`) and typedefs
+and nested classes (`findTypedef`). A lambda outside any class still finds
+nothing. `enclosing()` was not used for this on purpose: Mangle.cpp reads it,
+and a closure's name must not change.
+
+**A by-value catch whose copy throws, and a test that was measuring the wrong
+copy.** [except.handle]/3 says the copy-initialisation of the exception
+declaration exiting by a throw calls `std::terminate`. The fix is one block:
+the copy-constructor call is wrapped in a `Block` marked `setUnwindCleanup()`,
+which is exactly the terminate scope an unwinding pad gets (the Walker opens a
+region around it, the Itanium targets get a catch-all row whose pad calls
+`std::terminate`, the C6000 gets cl6x's catch-and-terminate scope). Written,
+built, and the register case still printed `outer(9) done` - on the Mac and
+on the Linux box, with a call-site table that was right by inspection. gdb on
+the box showed `__gxx_personality_v0` entered exactly twice in the whole run,
+both for the *first* exception. The `throw 9` had never reached the unwinder
+from the catch's copy, because it was thrown from the *throw's* copy:
+`throw E(1)` builds a temporary and copies it into the exception object with
+`E::E(const E &)`, inside the try body, where the outer `catch (int)` is the
+right answer. clang elides that copy ([class.copy]/31) and reaches the catch
+copy; cxx1 does not elide it. The program therefore depended on elision, which
+`tests/open/README` forbids, and it was rewritten: `static E g(1); throw g;`
+is nobody's to elide, and the copy constructor counts generations and throws
+on the second - the catch's. Both compilers now stop at `copy2 ` with exit 134,
+the unfixed compiler prints `outer(9) done`, and the C6000 emulator agrees.
+x86_64-windows is excused by name, its tables marking no funclet as
+terminating (dtor-throws-unwinding says the same). **Two things to carry:**
+`cxx1` copies a thrown temporary where every other compiler constructs the
+exception object in place - legal, one copy constructor call dearer, and a
+difference a constructor trace will show; and a register program is a
+measurement only if the thing it measures is the only thing that can differ.
+
+**A lambda's `return` inside a `try`.** `deduceLambdaReturn` looked for the
+first `return` at the body's own brace level, parsed the statements before it
+for their declarations, and read that one expression; a `try`/`catch` put the
+`return` one level down, the lambda deduced `void`, and its own `return` was
+then refused against it. The deducer reads the whole body now, with
+`deducingReturn_` pointing at the answer: the return statement, seeing it,
+records its operand's decayed type - the first one deciding, `return;` being
+void - and hands back an empty `Return` instead of converting against a
+`returnType_` there is none of. `deducingReturn_` travels in `FunctionState`
+and is cleared by `clearFunctionState`, so a replayed body never sees an
+enclosing deduction's. **Two consequences of reading the whole body, both
+handled.** Its string literals were registered in the program and left there
+unreferenced - `lambda.x86_64-linux.s` gained a phantom `.L.str` - so the
+deducer truncates the string table back, unless the reading emitted a
+function or a global that might name one. And a nested lambda met while
+deducing was declared, numbered `$_N` and *replayed into a dead call
+operator*, which the real parse then numbered past: `_ZZ4mainENK3$_7clEi`
+where clang wrote `$_6`. A closure met while deducing is now named
+`$deduced_N` from a counter of its own and never replayed; the real parse
+numbers from where it was, `lambda-nested-capture` lost 46 lines of dead
+code, and every closure number in the new case agrees with clang.
+
+**A floating constant expression.** `fold()` answers in `long long` and
+returned false at a floating `Num`, so `constexpr double d = 1.5;`, a
+`static_assert` over `d` and `int a[(int)e]` were all "not a constant
+expression". The floating folder already existed - `foldDouble`, with its two
+host-precision flags, storing `const double` globals and static members - so
+this is plumbing rather than a new lane: a const floating *local* is stored
+the same way (`constantFloatingInitialiser`); a global `constexpr` double is
+accepted when `foldDouble` answers; and `fold()` hands a floating operand to
+it where an integer comes out - a cast to integer, the six comparisons, `!`,
+`&&`, `||` - through `foldFloating`, which folds the flags away. A floating
+*result* stays foldDouble's own. A non-constant initialiser and a failing
+assertion are refused as before. `static constexpr double` in-class is a
+separate, named refusal and the case leaves it out.
+
+**What arrived.** `tests/open/lambda-static-local`: a static local inside a
+lambda's body is emitted as `operator().n`, a label no assembler takes. It
+was there before this round (reproduced on the stashed compiler) and the
+whole-body reading made it visible.
+
+Measured at the close: Mac 495 cases, 1183 emissions, 305 names against
+clang, 30 overloads; Linux 495 and 1183 under g++; Windows 460 cases under cl
+and 191 names agreeing (lambda-class-scope-names carries a `.nocl`, cl
+hashing its closure names); the C6000 emulator 295. Six goldens changed, all
+of them the terminate scope or the dead closures leaving. Five `.nonames`
+were written, three of them the C1/D1 rule and two the closure spelling.
+
 ## Build
 
 ```
