@@ -739,6 +739,9 @@ void Parser::topLevel(Program &program) {
                              "which declares nothing new");
         declareFunction(d.name, d.type, params, variadic, false, d.pos,
                         sc == StorageStatic);
+        // A prototype's by-value parameters were registered alive above, and
+        // there is no body to destroy them: pop them, or the next definition does.
+        alive_.resize(alive_.size() - aliveParams);
         return;
     }
     const Signature *member = nullptr;

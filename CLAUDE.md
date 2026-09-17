@@ -10070,10 +10070,10 @@ CCS 7.4 on the Windows box assembling all 296 and linking every one** through
 Thirty-four goldens changed: the terminate scope, the dead closures leaving,
 and every case with a static local taking its new symbol.
 
-## The seam with cl: a constructor's RAX and the order of overloaded slots
+## The seam with cl: a constructor's RAX, the order of overloaded slots, and a prototype's parameter
 
-**Both from the review of 2026-09-17 against cl (`VM6747/CXX1I-REVIEW-2026-09-17.md`,
-A1 and A3), and both invisible to anything compiled by cxx1 alone** - which
+**All three from the review of 2026-09-17 against cl (`VM6747/CXX1I-REVIEW-2026-09-17.md`,
+A1, A2 and A3); A1 and A3 invisible to anything compiled by cxx1 alone** - which
 is why every suite was green while a program half compiled by cl crashed.
 `tests/winlink/` is the answer to that: two-half programs, the a-half by
 cxx1 and the b-half by cl and then the reverse, linked and run by
@@ -10107,7 +10107,21 @@ virtual before the first slot of its name within the class's own run
 appends otherwise; every call finds its slot by name and parameters, so
 nothing else moved. Both probe tables now match cl's word for word.
 
-Measured on the four sandboxes at the close: Mac 496 / 1187 / 306 / 30, the
+**A2. A prototype's by-value parameter was left alive.** The parameter loop
+registers a by-value class parameter with a destructor as alive on Microsoft,
+where the callee destroys it; a prototype went through that loop and then
+returned at `;` without a body to pop it, so the entry stayed and the next
+definition - the same function or any other - destroyed that slot as its own:
+`int takeNT(NT); int takeNT(NT n) {...}` called `??1NT` twice on the normal
+path and cl's printing probe died with no output. Every header-declared,
+.cpp-defined function is this shape, and no suite case had it because each
+defines its functions where it declares them. The prototype branch now pops
+what the loop pushed; `by-value-declared-first.cpp` counts constructions and
+destructions across the three shapes (declared then defined, another
+function's prototype ahead of a definition, a two-by-value prototype ahead
+of one with nothing to destroy). One emission changed in the golden: its own.
+
+Measured on the four sandboxes at the close of A1/A3: Mac 496 / 1187 / 306 / 30, the
 tms6747 emissions byte-identical to the golden recorded at 3c1130a (so the
 emulator and cl6x answer as before; 138 goldens changed, every one
 x86_64-windows, every one a `this` reload or a `.quad` reorder); Linux 496
