@@ -1,0 +1,3 @@
+x86_64-linux  a closure type has no name the standard obliges anybody to match - [expr.prim.lambda] calls it a unique unnamed type - and the two compilers spell theirs differently, `$_N` against clang's `UlvE_`; lambda.nonames records it. Nothing links against a closure: its call operator is reached through the object, which never leaves the function that made it. The one other extra is cxx1's C1 form of S::In's constructor, the rule mem-init-two-rules.nonames records; every name the case is about - S::k, S::twice - agrees.
+x86_64-windows  the same closures, `$_N` against cl's `<lambda_N>`; the seven other names agree.
+arm64-darwin  the same closures, with Mach-O's leading underscore.

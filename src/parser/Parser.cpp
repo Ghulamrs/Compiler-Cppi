@@ -256,6 +256,8 @@ const Type *Parser::findTypedef(const std::string &name) const {
         if (const Type *t = lookupInClass(classStack_[i], name)) return t;
     if (currentClass_ != nullptr)
         if (const Type *t = lookupInClass(currentClass_, name)) return t;
+    if (const Type *scope = lambdaScope())
+        if (const Type *t = lookupInClass(scope, name)) return t;
 
     // **A held body is replayed at file scope, and its return type is read before
     // anything says which class it belongs to.** `Holder *self()` is the case, and
@@ -317,6 +319,8 @@ const Parser::EnumConst *Parser::findClassEnum(const std::string &name) const {
         if (const EnumConst *e = enumInClass(classStack_[i], name)) return e;
     if (currentClass_ != nullptr)
         if (const EnumConst *e = enumInClass(currentClass_, name)) return e;
+    if (const Type *scope = lambdaScope())
+        if (const EnumConst *e = enumInClass(scope, name)) return e;
     if (!inlineOwner_.empty()) {
         auto owner = typedefIndex_.find(inlineOwner_);
         if (owner != typedefIndex_.end())

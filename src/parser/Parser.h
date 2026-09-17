@@ -1377,6 +1377,11 @@ private:
     int lambdaRetSeq_ = 0;
     // The class a closure captured `this` from, by closure tag.
     std::map<std::string, const Type *> closureOuter_;
+    // The class a lambda was written in, by closure tag, `this` captured or
+    // not: [expr.prim.lambda]/7 puts the body in that member function's scope,
+    // so its statics, enumerators and nested types are named bare.
+    std::map<std::string, const Type *> closureScope_;
+    const Type *lambdaScope() const;
     // `$this` - the member a `[this]` capture holds.
     static const char *capturedThis() { return "$this"; }
     // The class the enclosing function's `this` points at, const and all.

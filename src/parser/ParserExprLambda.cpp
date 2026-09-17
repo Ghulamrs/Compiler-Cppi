@@ -350,6 +350,9 @@ ExprPtr Parser::lambdaExpression() {
         closure->setLocalOwner(currentFunction_);
     }
     if (capturedThisFrom != nullptr) closureOuter_[tag] = capturedThisFrom;
+    // A lambda inside a lambda is in the scope the outer one was written in.
+    if (const Type *scope = lambdaScope()) closureScope_[tag] = scope;
+    else if (currentClass_ != nullptr) closureScope_[tag] = currentClass_->unqualified();
     declareTypeName(tag, closure);
     // Laid out as any class is: each member at the next offset its own
     // alignment allows, and the whole thing aligned to the widest of them.
@@ -555,6 +558,16 @@ ExprPtr Parser::capturedThisPointer() {
     ExprPtr acc = thisMember(self->offset, self->type->pointee(), *held);
     acc->setType(types_.pointerTo(outer->second));
     return acc;
+}
+
+// The class whose scope the body being parsed is in, when that body is a
+// closure's call operator; null for every other function. The closure itself
+// is `currentClass_` there, and it has none of what the class declares.
+const Type *Parser::lambdaScope() const {
+    if (currentClass_ == nullptr) return nullptr;
+    std::map<std::string, const Type *>::const_iterator scope =
+        closureScope_.find(currentClass_->unqualified()->tag());
+    return scope == closureScope_.end() ? nullptr : scope->second;
 }
 
 // A capture of the lambda around this one, read from inside it: by then the outer
