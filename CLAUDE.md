@@ -10046,17 +10046,29 @@ it where an integer comes out - a cast to integer, the six comparisons, `!`,
 assertion are refused as before. `static constexpr double` in-class is a
 separate, named refusal and the case leaves it out.
 
-**What arrived.** `tests/open/lambda-static-local`: a static local inside a
-lambda's body is emitted as `operator().n`, a label no assembler takes. It
-was there before this round (reproduced on the stashed compiler) and the
-whole-body reading made it visible.
+**What arrived, and went the same day.** `tests/open/lambda-static-local`: a
+static local inside a lambda's body was emitted as `operator().n`, a label no
+assembler takes. It was there before this round (reproduced on the stashed
+compiler) and the whole-body reading made it visible. Probing its cause found
+three faults under one: `uniqueStaticSymbol` named the object after the
+function's *bare* name, so a destructor's static was `~S.d`, and S::f, T::f,
+a::g, b::g, f(int) and f(double) all made one `f.n` or `g.n` - "symbol
+already defined" for any two of them in a file. The symbol is the function's
+mangled name and the object's now - `_ZN1S1fEv.n`, `_ZZN1S1fEvENK3$_0clEv.n` -
+which every backend already spells (Masm's `$` prefix for a dot, TI's `$`
+for it) and which nothing outside the function links against. The register
+is empty; the case holds every shape above, with a guarded static that has a
+constructor and destructor.
 
-Measured at the close: Mac 495 cases, 1183 emissions, 305 names against
-clang, 30 overloads; Linux 495 and 1183 under g++; Windows 460 cases under cl
-and 191 names agreeing (lambda-class-scope-names carries a `.nocl`, cl
-hashing its closure names); the C6000 emulator 295. Six goldens changed, all
-of them the terminate scope or the dead closures leaving. Five `.nonames`
-were written, three of them the C1/D1 rule and two the closure spelling.
+Measured at the close, on the four sandboxes: Mac 496 cases, 1187
+emissions, 306 names against clang, 30 overloads; Linux 496 and 1187 under
+g++; Windows 461 cases under cl and 190 names agreeing (lambda-class-scope-names
+and lambda-static-local carry a `.nocl`, cl hashing its closure names and
+spelling a static local its own way); the C6000 emulator 296, and **cl6x from
+CCS 7.4 on the Windows box assembling all 296 and linking every one** through
+`Emulator/tests/ti.sh` (705 programs across the three compilers, 0 refused).
+Thirty-four goldens changed: the terminate scope, the dead closures leaving,
+and every case with a static local taking its new symbol.
 
 ## Build
 

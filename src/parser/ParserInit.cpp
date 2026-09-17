@@ -1361,16 +1361,19 @@ StmtPtr Parser::guardOnce(const std::string &symbol, std::vector<StmtPtr> body) 
     return StmtPtr(new Block(std::move(whole)));
 }
 
-// A static local's symbol: the function's name and the object's, numbered
-// where a name is declared twice in one function.
+// A static local's symbol: the function's *mangled* symbol and the object's
+// name, numbered where a name is declared twice in one function. The bare
+// name was used until 2026-09-17, and S::f, T::f and f(double) all made `f.n`.
 std::string Parser::uniqueStaticSymbol(const std::string &name) {
-    std::string symbol = functionName_ + "." + name;
+    const std::string &owner = currentFunction_.empty() ? functionName_
+                                                        : currentFunction_;
+    std::string symbol = owner + "." + name;
     for (int n = 1; ; n++) {
         bool taken = false;
         for (const std::string &used : staticSymbols_)
             if (used == symbol) { taken = true; break; }
         if (!taken) break;
-        symbol = functionName_ + "." + name + "." + std::to_string(n);
+        symbol = owner + "." + name + "." + std::to_string(n);
     }
     staticSymbols_.push_back(symbol);
     return symbol;

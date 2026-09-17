@@ -31,7 +31,7 @@ Two rules about what may be added:
     clang built=1 gone=1 live=0: the same program, one leaked exception object,
     and identical output above the ledger line.
 
-One is here now (open.sh counts), and both halves of the movement below are the point. **Five of
+None is here now (open.sh counts), and both halves of the movement below are the point. **Five of
 the original fourteen have been mended and moved out** with their .expected,
 which is the movement the rule above asks for: capture-default-this,
 polymorphic-class-template-zts, catch-return-end-catch, and then
@@ -77,6 +77,10 @@ not, so the copy that threw was the throw's own and the outer handler was the
 right answer; `throw g` from a static is nobody's to elide),
 lambda-return-through-try (the whole body is read, every `return` reporting
 its type) and constexpr-double (fold() hands a floating operand to foldDouble
-where an integer comes out of it). **One arrived the same day**, found by the
-fourth of those: lambda-static-local, a static local inside a lambda's body
-named `operator().n`, which no assembler takes.
+where an integer comes out of it). **One arrived the same day and left the
+same day**, found by the fourth of those: lambda-static-local, a static local
+inside a lambda's body named `operator().n`, which no assembler takes - and
+`~S.d` in a destructor, and one `f.n` for S::f, T::f, f(int) and f(double)
+alike. A static local is named by its function's mangled symbol now, and the
+case in tests/cases holds all of those shapes. An empty register is not a
+finished one: the next program that answers differently from clang goes here.

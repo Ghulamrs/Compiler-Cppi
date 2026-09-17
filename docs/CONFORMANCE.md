@@ -77,9 +77,14 @@ function's type - and that is not worth doing for a name.
 ## A static local keeps its own name in the object file
 
 A `static` variable inside a function becomes a global here, named
-`function.variable`. Itanium names it `_ZZ8functionvE8variable`. Both are
-internal to the object and nothing outside can reach either, so this shows up
-only in a symbol listing side by side with clang's.
+`<the function's mangled symbol>.variable` - `_ZN1S1fEv.n`, `main.n`, and
+`_ZN1S1gEv.l.guard` for a guarded one - where Itanium names it
+`_ZZN1S1fEvE1n` with `_ZGVZN1S1fEvE1n`, and cl `?n@?1??f@S@@QEAAHXZ@4HA`.
+All are internal to the object and nothing outside can reach any of them, so
+this shows up only in a symbol listing side by side with clang's or cl's.
+Until 2026-09-17 the owner was the function's *bare* name, `f.n`, so S::f,
+T::f, f(int) and f(double) collided in one file and a destructor's static
+was `~S.d`, which no assembler takes; the mangled symbol is unique.
 
 ## A `void *` converts to any object pointer on its own
 
