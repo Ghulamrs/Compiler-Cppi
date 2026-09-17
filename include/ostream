@@ -142,6 +142,10 @@ public:
     }
 
     ostream &operator<<(char c) { return put(c); }
+    // [ostream.inserters.character]: the other two character types print as
+    // characters too. Without these they promoted to int and printed numbers.
+    ostream &operator<<(signed char c) { return put((char)c); }
+    ostream &operator<<(unsigned char c) { return put((char)c); }
 
     // **A bool prints as 1 or 0, not as "true".** `boolalpha` is off by
     // default and there are no format flags here to turn it on - measured

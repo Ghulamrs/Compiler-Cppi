@@ -111,8 +111,11 @@ private:
         // the runtime's own trap, and a class with one of these still in its
         // table is abstract.
         bool pure = false;
+        const Type *returns = nullptr;     // checked when an override takes the slot
     };
     std::map<std::string, std::vector<VSlot> > vtables_;
+    void checkOverrideReturn(const VSlot &s, const Type *returns, const std::string &cls,
+                             const std::string &name, std::size_t pos) const;
     // Where a class's own new slots begin, after its primary base's - the Microsoft overload order is kept within that run only.
     std::map<std::string, std::size_t> ownSlotsFrom_;
     // Whether a slot is the one a member with this name and parameter list overrides.

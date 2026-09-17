@@ -1842,6 +1842,11 @@ ExprPtr Parser::unary() {
         if (ExprPtr call = overloadedUnary("+", v, pos)) return call;
         v = decay(std::move(v));
         v = contextualScalar(std::move(v), pos, "unary '+'");
+        // [expr.unary.op]/7: the integral promotion applies, so `+c` is an int.
+        if (v->type()->isArithmetic()) {
+            const Type *t = promote(v->type());
+            if (t != v->type()) v = convert(std::move(v), t);
+        }
         return v;
     }
 

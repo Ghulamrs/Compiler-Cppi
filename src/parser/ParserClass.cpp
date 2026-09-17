@@ -82,6 +82,36 @@ bool Parser::overrides(const VSlot &s, const std::string &name,
     return sameParameters(s.params, params);
 }
 
+// **[class.virtual]/8: an override returns the same type, or a pointer or
+// reference to a class derived from the one the base's returns.** The slot was
+// taken on name and parameters alone: `double f()` over `virtual int f()` ran.
+void Parser::checkOverrideReturn(const VSlot &s, const Type *returns, const std::string &cls,
+                                 const std::string &name, std::size_t pos) const {
+    if (s.returns == nullptr || returns == nullptr) return;
+    if (s.returns == returns || s.returns->describe() == returns->describe()) return;
+    const bool ptr = s.returns->isPointer() && returns->isPointer();
+    const bool ref = s.returns->isReference() && returns->isReference();
+    if (ptr || ref) {
+        const Type *base = s.returns->pointee(), *over = returns->pointee();
+        if (base->unqualified()->isStructOrUnion() && over->unqualified()->isStructOrUnion() &&
+            (base->isConst() || !over->isConst())) {
+            const int off = publicBaseOffset(over, base);
+            if (off == 0) return;
+            if (off > 0)
+                src_.fail(pos, "'" + cls + "::" + name + "' returns '" + returns->describe() +
+                               "' over the base's '" + s.returns->describe() + "' - a covariant "
+                               "return, and this one moves the result by " + std::to_string(off) +
+                               " bytes at every call through the base, which needs a thunk this "
+                               "compiler does not build yet. Return the base's type here");
+        }
+    }
+    src_.fail(pos, "'" + cls + "::" + name + "' overrides a virtual function with a "
+                   "different return type: '" + returns->describe() + "' where the base's "
+                   "is '" + s.returns->describe() + "'. An override returns the same type, "
+                   "or a pointer or reference to a class derived from what the base's "
+                   "points at");
+}
+
 std::string Parser::deletingDestructorSymbol(const std::string &cls) {
     return target_.microsoftNames()
          ? microsoftDeletingDestructorName(cls, findTypedef(cls))
@@ -3280,6 +3310,7 @@ void Parser::declareMember(const std::string &cls, const Declared &d,
     std::size_t slot = slots.size();
     for (std::size_t i = 0; i < slots.size(); i++) {
         if (!overrides(slots[i], d.name, params, constThis)) continue;
+        checkOverrideReturn(slots[i], fn->returns(), cls, d.name, d.pos);
         slot = i;
         isVirtual = true;
         break;
@@ -3297,6 +3328,7 @@ void Parser::declareMember(const std::string &cls, const Declared &d,
                 if (it == vtables_.end()) continue;
                 for (std::size_t i = 0; i < it->second.size(); i++)
                     if (overrides(it->second[i], d.name, params, constThis)) {
+                        checkOverrideReturn(it->second[i], fn->returns(), cls, d.name, d.pos);
                         isVirtual = true;
                         break;
                     }
@@ -3324,6 +3356,7 @@ void Parser::declareMember(const std::string &cls, const Declared &d,
     if (slot < slots.size()) {
         slots[slot].symbol = entry;
         slots[slot].pure = isPure;
+        slots[slot].returns = fn->returns();
         return;
     }
     // **cl groups a class's own overloads of one name at the first one's
@@ -3336,7 +3369,7 @@ void Parser::declareMember(const std::string &cls, const Declared &d,
             if (slots[i].name == d.name) { at = i; break; }
     }
     slots.insert(slots.begin() + static_cast<std::ptrdiff_t>(at),
-                 VSlot{ d.name, entry, params, constThis, isPure });
+                 VSlot{ d.name, entry, params, constThis, isPure, fn->returns() });
 }
 
 // A member function's linkage name. Never plain, and never affected by

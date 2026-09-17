@@ -1,0 +1,2 @@
+x86_64-linux  Four cxx1-only names and none that differ: the constructors and destructors B and D define inside their bodies, `_ZN1BC1Ev`, `_ZN1BD1Ev`, `_ZN1DC1Ev`, `_ZN1DD1Ev` - ordinary definitions here and comdat linkonce_odr in clang's object, which the collector does not see; the difference every .nonames in this directory with an in-class constructor records. The names this case is about - `self` and `ref` in both classes, the vtables and the type_info - agree, and a covariant override is not in a name at all.
+arm64-darwin  `__ZN1BC1Ev` alone, the same difference.

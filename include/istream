@@ -60,12 +60,36 @@ public:
     operator bool() { return state_ == 0; }
 
     // One `fscanf` conversion, and the same answer every time: one item read
-    // is success, zero is a failed match, and EOF is the end.
+    // is success, zero is a failed match, and EOF is the end. A string source
+    // hands sscanf only the characters a number can be made of - sign, digits,
+    // and for a floating conversion the point and exponent - so `"42abc" >> x`
+    // stops at the `a` as a stream does, rather than eating the whole word.
     istream &scan(const char *how, void *where) {
+        if (state_ != 0) return *this;
         if (src_ != 0) {
+            const bool floating = how[1] == 'l' ? how[2] == 'f' : how[1] == 'f';
             string w;
-            *this >> w;
-            if (w.size() == 0) return *this;
+            int c = get();
+            while (c >= 0 && std::isspace(c)) c = get();
+            if (c == '+' || c == '-') { w += (char)c; c = get(); }
+            bool seenPoint = false, seenExp = false;
+            while (c >= 0) {
+                bool take = std::isdigit(c) != 0;
+                if (!take && floating) {
+                    if (c == '.' && !seenPoint && !seenExp) { take = true; seenPoint = true; }
+                    else if ((c == 'e' || c == 'E') && !seenExp && w.size() != 0) {
+                        take = true; seenExp = true;
+                        w += (char)c; c = get();
+                        if (c == '+' || c == '-') { w += (char)c; c = get(); }
+                        continue;
+                    }
+                }
+                if (!take) break;
+                w += (char)c;
+                c = get();
+            }
+            if (c >= 0) unget((char)c);
+            if (w.size() == 0) { state_ = c < 0 ? 2 : 1; return *this; }
             if (std::sscanf(w.c_str(), how, where) != 1) state_ = 1;
             return *this;
         }
@@ -77,21 +101,37 @@ public:
         return *this;
     }
 
-    istream &operator>>(int &v)           { return scan("%d", &v); }
-    istream &operator>>(unsigned int &v)  { return scan("%u", &v); }
-    istream &operator>>(long &v)          { return scan("%ld", &v); }
-    istream &operator>>(unsigned long &v) { return scan("%lu", &v); }
+    // [istream.formatted.arithmetic]: a conversion that fails here stores 0,
+    // which both oracles do; one that never ran, the stream already failed,
+    // leaves the value alone.
+    istream &number(const char *how, void *where, unsigned size) {
+        const int before = state_;
+        scan(how, where);
+        if (state_ != 0 && before == 0)
+            for (unsigned i = 0; i < size; i++) ((char *)where)[i] = 0;
+        return *this;
+    }
+    istream &operator>>(int &v)           { return number("%d", &v, sizeof v); }
+    istream &operator>>(unsigned int &v)  { return number("%u", &v, sizeof v); }
+    istream &operator>>(long &v)          { return number("%ld", &v, sizeof v); }
+    istream &operator>>(unsigned long &v) { return number("%lu", &v, sizeof v); }
     // The pair `<ostream>` gained for the same reason: `long long` is a type
     // of its own, and without these a 64-bit lvalue matched every overload
     // equally badly.
-    istream &operator>>(long long &v)          { return scan("%lld", &v); }
-    istream &operator>>(unsigned long long &v) { return scan("%llu", &v); }
-    istream &operator>>(double &v)        { return scan("%lf", &v); }
-    istream &operator>>(float &v)         { return scan("%f", &v); }
+    istream &operator>>(long long &v)          { return number("%lld", &v, sizeof v); }
+    istream &operator>>(unsigned long long &v) { return number("%llu", &v, sizeof v); }
+    istream &operator>>(double &v)        { return number("%lf", &v, sizeof v); }
+    istream &operator>>(float &v)         { return number("%f", &v, sizeof v); }
 
     // A char skips leading whitespace, which is what `>>` means and what
     // `get(char &)` deliberately does not.
-    istream &operator>>(char &c) { return scan(" %c", &c); }
+    istream &operator>>(char &c) {
+        int v = get();
+        while (v >= 0 && std::isspace(v)) v = get();
+        if (v < 0) { state_ = 2; return *this; }
+        c = (char)v;
+        return *this;
+    }
 
     // A word: whitespace skipped, then everything up to the next whitespace.
     // Read a character at a time rather than through `%s`, because `%s` cannot
@@ -123,7 +163,7 @@ public:
         return f == 0 ? -1 : std::fgetc(f);
     }
     istream &get(char &c) {
-        int v = std::fgetc(target());
+        int v = get();
         if (v < 0) { state_ = 2; return *this; }
         c = (char)v;
         return *this;
