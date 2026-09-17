@@ -1361,10 +1361,18 @@ StmtPtr Parser::tryStatement(std::size_t pos) {
                     std::vector<const Type *> ps;
                     ps.push_back(types_.pointerTo(caught));
                     ps.push_back(cc->params[0]);
-                    steps.push_back(StmtPtr(new ExprStmt(
+                    // **[except.handle]/3: a copy that throws terminates** -
+                    // the handler is never entered and nothing propagates.
+                    // The block is the terminate scope an unwinding pad gets.
+                    std::vector<StmtPtr> copying;
+                    copying.push_back(StmtPtr(new ExprStmt(
                         completeCall(caught->unqualified()->tag(), cc->symbol,
                                      nullptr, types_.get(Kind::Void), ps,
                                      false, cpos, std::move(ctorArgs)))));
+                    Block *copyBlock = new Block(std::move(copying));
+                    copyBlock->setScope(-1);
+                    copyBlock->setUnwindCleanup();
+                    steps.push_back(StmtPtr(copyBlock));
                 } else if (caught->unqualified()->isPointer()) {
                     // **A pointer caught is the pointer __cxa_begin_catch
                     // hands back**, converted to the handler's type: the
