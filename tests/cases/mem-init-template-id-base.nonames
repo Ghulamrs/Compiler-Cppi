@@ -1,0 +1,2 @@
+x86_64-linux  the recorded rule in docs/CONFORMANCE.md, "An inline member function is a strong symbol": every constructor and destructor here is written inside its class, so clang emits only the form a use asks for and cxx1 emits both of Itanium's - the extras are cxx1's C1 and D1 forms, and nothing clang wrote is missing or different. x86_64-windows agrees on all seven, which is where the question - which base constructor a template-id entry reaches - is checked by name.
+arm64-darwin  the same C1 forms, with Mach-O's leading underscore.

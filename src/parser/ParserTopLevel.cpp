@@ -876,13 +876,34 @@ void Parser::topLevel(Program &program) {
         at_++;
         for (;;) {
             std::size_t epos = peek().pos;
-            std::string entry = expectIdent("a member or base to initialise");
-            // **A base may be named with its namespace** - `:
-            // cc::Lowering(...)` is how a class writes it when the base is not
-            // in scope unqualified.
-            while (peek().is("::") && peekAt(1).kind == TokenKind::Ident) {
-                at_++;
-                entry += "::" + expectIdent("a name after '::'");
+            // **A base written as a template-id - `: P<int>(x)` - is read as a
+            // type**, the way the base-clause reads it; expectIdent stopped at
+            // the `<` with "expected '('". A member is never spelt with one.
+            const Type *templateBase = nullptr;
+            std::string entry;
+            {
+                std::size_t k = 0;
+                while (peekAt(k).kind == TokenKind::Ident && peekAt(k + 1).is("::"))
+                    k += 2;
+                if (peekAt(k).kind == TokenKind::Ident && peekAt(k + 1).is("<") &&
+                    atTypeName()) {
+                    StorageClass bsc;
+                    Qualifiers bquals;
+                    templateBase = specifiers(&bsc, &bquals);
+                    if (templateBase != nullptr) templateBase = templateBase->unqualified();
+                    entry = templateBase != nullptr ? templateBase->tag()
+                                                    : peekAt(k).text;
+                }
+            }
+            if (templateBase == nullptr) {
+                entry = expectIdent("a member or base to initialise");
+                // **A base may be named with its namespace** - `:
+                // cc::Lowering(...)` is how a class writes it when the base is not
+                // in scope unqualified.
+                while (peek().is("::") && peekAt(1).kind == TokenKind::Ident) {
+                    at_++;
+                    entry += "::" + expectIdent("a name after '::'");
+                }
             }
             expect("(");
             const int frameBeforeArgs = frameSize_;
@@ -895,7 +916,8 @@ void Parser::topLevel(Program &program) {
             bool isBase = false;
             bool wasVirtualBase = false;
             std::string baseKey = entry;
-            const Type *namedBase = findTypedef(entry);
+            const Type *namedBase = templateBase != nullptr ? templateBase
+                                                            : findTypedef(entry);
             const std::vector<Type::BaseSpec> &bs = memberOf->bases();
             for (std::size_t i = 0; i < bs.size(); i++)
                 // **And the injected class name**: inside a derived class the base is `Base`,
