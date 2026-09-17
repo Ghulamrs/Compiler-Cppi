@@ -885,6 +885,10 @@ private:
     bool atFunctionBody_ = false;
     int frameSize_ = 0;
     const Type *returnType_ = nullptr;
+    // Set while a lambda's body is read to find its return type: a `return`
+    // writes the type of its operand here, the first one deciding, and is
+    // not checked against returnType_, there being none yet.
+    const Type **deducingReturn_ = nullptr;
     std::string functionName_;
     std::vector<std::string> staticSymbols_;
 
@@ -1118,6 +1122,7 @@ private:
         int frameSize = 0, thisOffset = 0;
         const Type *currentClass = nullptr;
         const Type *returnType = nullptr;
+        const Type **deducingReturn = nullptr;
         int lambdaCount = 0;
         bool atFunctionBody = false;
         std::vector<Alive> alive;
@@ -1373,6 +1378,8 @@ private:
                                    const std::vector<std::string> &capNames,
                                    const std::vector<const Type *> &capTypes);
     int lambdaCount_ = 0;
+    // Closures met while a body is read for its return type, counted apart.
+    int deducedClosures_ = 0;
     // A closure's return-type typedef needs a name no other lambda will take.
     int lambdaRetSeq_ = 0;
     // The class a closure captured `this` from, by closure tag.

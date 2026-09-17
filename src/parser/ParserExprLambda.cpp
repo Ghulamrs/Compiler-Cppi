@@ -19,21 +19,9 @@ const Type *Parser::deduceLambdaReturn(std::size_t paramsFrom,
                                        std::size_t bodyTo,
                                        const std::vector<std::string> &capNames,
                                        const std::vector<const Type *> &capTypes) {
-    // **The first `return` at the body's own level**, not only a body that is
-    // one. C++11's letter deduces void for anything else; clang applies C++14's
-    // relaxation and is followed here. A nested lambda has a `return` of its own.
-    std::size_t i = bodyFrom + 1;                       // past the '{'
-    int depth = 1;
-    while (i < bodyTo && depth > 0) {
-        if (tokens_[i].is("{")) depth++;
-        else if (tokens_[i].is("}")) { depth--; if (depth == 0) break; }
-        else if (depth == 1 && tokens_[i].is("return")) break;
-        i++;
-    }
-    if (i >= bodyTo || !tokens_[i].is("return")) return types_.get(Kind::Void);
-    const std::size_t returnAt = i;
-    i++;
-    if (i < bodyTo && tokens_[i].is(";")) return types_.get(Kind::Void);
+    // **The whole body is read, and every `return` in it reports its
+    // operand's type**, the first deciding - [expr.prim.lambda]/4 by C++14's
+    // relaxation, which clang applies to C++11 too; a body with none is void.
 
     // **This is a nested parse of a different function and was saving three fields of it.**
     const FunctionState outer = captureFunctionState();
@@ -118,27 +106,32 @@ const Type *Parser::deduceLambdaReturn(std::size_t paramsFrom,
         }
     }
 
-    // **The statements before the return are read too, not skipped to**.
     at_ = bodyFrom + 1;                                 // past the '{'
-    // The same choice the block loop makes: a declaration or a statement.
-    // Calling statement() alone reads `auto i = ...;` as an expression and
-    // reports that one was expected.
-    while (at_ < returnAt && !peek().is("}") &&
-           peek().kind != TokenKind::End)
+    // The same choice the block loop makes: calling statement() alone reads
+    // `auto i = ...;` as an expression. Until 2026-09-17 only a `return` at
+    // the body's own brace level was seen, so one in a `try` left it void.
+    const Type *found = nullptr;
+    const std::size_t functionsBefore = current_->functions.size();
+    const std::size_t globalsBefore = current_->globals.size();
+    const std::size_t stringsBefore = current_->strings.size();
+    const int stringCount = strings_;
+    deducingReturn_ = &found;
+    while (at_ < bodyTo && !peek().is("}") && peek().kind != TokenKind::End)
         if (atDeclarationStart()) declaration(); else statement();
-
-    at_ = returnAt + 1;                                 // past that 'return'
-    const Type *found = types_.get(Kind::Void);
-    ExprPtr e = assign();
-    if (e != nullptr && e->type() != nullptr) found = decayedType(e->type());
+    deducingReturn_ = nullptr;
+    if (found == nullptr) found = types_.get(Kind::Void);
+    // **The reading is thrown away, and so are its string literals** - unless
+    // it emitted a function or a global (a nested closure's call operator,
+    // say), which may name one; then every literal stays, as before.
+    if (current_->functions.size() == functionsBefore &&
+        current_->globals.size() == globalsBefore) {
+        current_->strings.resize(stringsBefore);
+        strings_ = stringCount;
+    }
 
     leaveScope();                                       // parameters and body
     leaveScope();                                       // the captures
-    // The numbers handed out during the deduction stay handed out: restoring
-    // the count would let the real parse reuse a tag this one already declared.
-    const int made = lambdaCount_;
     restoreFunctionState(outer);
-    if (made > lambdaCount_) lambdaCount_ = made;
     return found;
 }
 
@@ -326,8 +319,13 @@ ExprPtr Parser::lambdaExpression() {
         returns = deduceLambdaReturn(paramsFrom, paramsTo, bodyFrom, bodyTo,
                                      capNames, capTypes);
 
-    // The closure type, named `$_0` upward within the enclosing function, which is what clang calls one.
-    const std::string local = "$_" + std::to_string(lambdaCount_++);
+    // The closure type, named `$_0` upward within the enclosing function, as
+    // clang names one. **One met while an enclosing lambda's body is read for
+    // its return type is named apart and never replayed** - see deducing.
+    const bool deducing = deducingReturn_ != nullptr;
+    const std::string local = deducing
+        ? "$deduced_" + std::to_string(deducedClosures_++)
+        : "$_" + std::to_string(lambdaCount_++);
     // **The tag has to be unique and the function's *name* is not enough.** In a
     // replay `currentFunctionName_` is `operator()`, so every nested lambda built
     // `operator()::$_0`; the owner decides, with a counter for the display tag.
@@ -408,7 +406,7 @@ ExprPtr Parser::lambdaExpression() {
     std::vector<PendingBody> mine;
     mine.push_back(PendingBody{ tag, start, local, tag + "::operator()",
                                 PendingBody::npos() });
-    replayInlineBodies(std::move(mine));
+    if (!deducing) replayInlineBodies(std::move(mine));
 
     // The object itself: a slot in this frame, and the expression is its name.
     MadeLambda record;

@@ -1650,6 +1650,20 @@ StmtPtr Parser::statementBody() {
                               "register a return value would travel in");
     if (consume("return")) {
         std::size_t pos = peek().pos;
+        // **A lambda's body, read to find what it returns**: the operand's
+        // type is the answer, the first `return` deciding, and the statement
+        // built here is thrown away with the rest of that reading.
+        if (deducingReturn_ != nullptr) {
+            const Type *found = types_.get(Kind::Void);
+            if (!consume(";")) {
+                ExprPtr value = decay(expr());
+                if (value != nullptr && value->type() != nullptr)
+                    found = decayedType(value->type());
+                expect(";");
+            }
+            if (*deducingReturn_ == nullptr) *deducingReturn_ = found;
+            return StmtPtr(new Return(nullptr));
+        }
         if (consume(";")) {
             if (!returnType_->isVoid())
                 src_.fail(pos, "this function returns '" + returnType_->describe() +

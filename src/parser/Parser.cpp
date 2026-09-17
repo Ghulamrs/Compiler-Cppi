@@ -516,6 +516,7 @@ Parser::FunctionState Parser::captureFunctionState() const {
     s.thisOffset = thisOffset_;
     s.currentClass = currentClass_;
     s.returnType = returnType_;
+    s.deducingReturn = deducingReturn_;
     s.lambdaCount = lambdaCount_;
     s.atFunctionBody = atFunctionBody_;
     s.alive = alive_;
@@ -570,6 +571,7 @@ void Parser::restoreFunctionState(const FunctionState &s) {
     thisOffset_ = s.thisOffset;
     currentClass_ = s.currentClass;
     returnType_ = s.returnType;
+    deducingReturn_ = s.deducingReturn;
     lambdaCount_ = s.lambdaCount;
     atFunctionBody_ = s.atFunctionBody;
     alive_ = s.alive;
@@ -625,6 +627,7 @@ void Parser::clearFunctionState() {
     thisOffset_ = 0;
     currentClass_ = nullptr;
     returnType_ = nullptr;
+    deducingReturn_ = nullptr;
     lambdaCount_ = 0;
     atFunctionBody_ = false;
     alive_.clear();
