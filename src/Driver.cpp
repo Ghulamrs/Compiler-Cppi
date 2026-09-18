@@ -117,22 +117,18 @@ void Driver::standardIncludeDirectories(const std::string &argv0) {
         return;
     }
 
-    // Beside the binary or one directory up, as a checkout has them - include/
-    // and lib/ - or as an installation does, every header of this compiler's in
-    // include/ alone, so that lib/ beside it can be another compiler's.
+    // Beside the binary or one directory up. include/ is this compiler's when it
+    // holds `cstddef`, a name only this library spells; the C headers <cstddef>
+    // reaches are there too (an installation) or in lib/ (a checkout, or cc1i's).
     const std::string here = programDirectory(argv0);
     const std::string candidates[2] = { here, here + "/.." };
     for (const std::string &at : candidates) {
         const std::string cxxDir = at + "/include";
         const std::string cDir = at + "/lib";
-        if (!directoryHas(cxxDir, "vector")) continue;
-        if (directoryHas(cxxDir, "stddef.h")) {
-            searchPath_.push_back(cxxDir);
-            return;
-        }
-        if (!directoryHas(cDir, "stddef.h")) continue;
+        if (!directoryHas(cxxDir, "cstddef")) continue;
         searchPath_.push_back(cxxDir);
-        searchPath_.push_back(cDir);
+        if (!directoryHas(cxxDir, "stddef.h") && directoryHas(cDir, "stddef.h"))
+            searchPath_.push_back(cDir);
         return;
     }
 

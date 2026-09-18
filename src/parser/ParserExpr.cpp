@@ -138,7 +138,6 @@ ExprPtr Parser::overloadedBinary(BinOp op, ExprPtr &lhs, ExprPtr &rhs,
                    "' cannot be combined with '" + spelling + "' - one of them "
                    "is a class, and no '" + name + "' is declared that takes "
                    "them");
-    return nullptr;
 }
 
 // `-v`, `!v`, `~v`, `*v`, `&v` and the two increments - the same merged candidate
