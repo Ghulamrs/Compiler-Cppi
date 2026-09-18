@@ -20,6 +20,18 @@ public:
     void defLabel(const std::string &l) override;
     void functionBegin(const std::string &name, bool exported,
                        bool mergeable = false) override;
+    void weakDefinition(const std::string &name) override;
+    // **A mergeable definition is a COMDAT**, which ml64 cannot say and the project's
+    // assembler can: `SEGMENT ... COMDAT(sym)` folds on sym, `ASSOCIATIVE(sym)` follows it.
+    // An object aligned past 16 gets `.data$64 SEGMENT ALIGN(64)` the same way (ml64's rule).
+    bool mergeable_ = false;        // the open function is one
+    std::string pendingComdat_;     // weakDefinition said so; the block opens at the ALIGN
+    std::string dataBlock_;         // the segment to ENDS
+    bool dataBlockUsed_ = false;    // its object's ALIGN was seen: the next ALIGN closes it
+    void openDataBlock(int align);
+    void closeDataBlock();
+    // The clause a funclet's or a table's segment takes when the function is mergeable.
+    std::string associative() { return mergeable_ ? " ASSOCIATIVE(" + mangledName() + ")" : std::string(); }
     void prologue(int frameSize, const std::string &lsda) override;
     // **Whether a FuncInfo follows is the code generator's answer, not this one's.**
     void noteHasEh(bool yes) override { hasEh_ = yes; }
