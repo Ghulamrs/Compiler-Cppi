@@ -551,9 +551,8 @@ static bool fileExists(const std::string &path) {
 }
 
 // **A TI program: every .s through asm6x, the objects through lnk6x against
-// TI's runtime.** The exception-handling build of the runtime where there is
-// one - CXX1_TILIB names a directory holding it, as CCS ships only the other,
-// and a C++ program that throws or reaches operator new needs it.
+// TI's runtime** - the exception-handling build where CXX1_TILIB names one,
+// since CCS ships only the other and a C++ program that throws needs it.
 bool Driver::linkTi() {
     std::vector<std::string> objects, steps;
     for (const std::string &t : temporaries_) {
