@@ -115,6 +115,8 @@ const Rule kRules[] = {
     { "shl", "shl", 0 }, { "shr", "shr", 0 }, { "sar", "sar", 0 },
     { "cmp", "cmp", 0 }, { "cdq", "cdq", 0 }, { "cqo", "cqo", 0 },
     { "addl", "add", 4 }, { "cmpl", "cmp", 4 }, { "testb", "test", 1 },
+    { "test", "test", 0 }, { "testq", "test", 8 }, { "testl", "test", 4 },
+    { "testw", "test", 2 }, { "leave", "leave", 0 },
 
     { "call", "call", 0 }, { "ret", "ret", 0 },
     { "jmp", "jmp", 0 }, { "je", "je", 0 }, { "jne", "jne", 0 },
