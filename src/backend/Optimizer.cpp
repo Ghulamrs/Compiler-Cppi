@@ -1,6 +1,7 @@
 #include "Optimizer.h"
 
 #include <cstring>
+#include <map>
 
 IrOp IrOp::from(const Op &o) {
     IrOp r;
@@ -579,10 +580,18 @@ bool isStackOp(const IrIns &i, const char *m) {
 } // namespace
 
 // ---------------------------------------------------------------------------
-// Collecting a run.
+// Collecting a function.
+
+IrChunk &Optimizer::chunk() {
+    if (chunks_.empty() || !open_) {
+        chunks_.push_back(IrChunk());
+        open_ = true;
+    }
+    return chunks_.back();
+}
 
 void Optimizer::add(IrIns &&i) {
-    // Nothing reaches here: the last run ended in a jump or a return and no
+    // Nothing reaches here: the last chunk ended in a jump or a return and no
     // label has been defined since.
     if (unreachable_ && level_ >= 1) {
         removed_++;
@@ -590,9 +599,9 @@ void Optimizer::add(IrIns &&i) {
     }
     bool ends = endsRun(i.m);
     bool leaves = i.m == "jmp" || i.m == "ret";
-    run_.push_back(std::move(i));
+    chunk().ins.push_back(std::move(i));
     if (ends) {
-        endRun();
+        open_ = false;
         unreachable_ = leaves;
     }
 }
@@ -612,27 +621,125 @@ void Optimizer::ins(const std::string &m, const Op &a, const Op &b) {
     add(std::move(i));
 }
 
-void Optimizer::endRun() {
-    if (run_.empty()) return;
-    if (level_ >= 1) optimize();
-    replay();
+void Optimizer::defLabel(const std::string &l) {
+    if (chunks_.empty() && level_ < 1) { under_->defLabel(l); return; }
+    chunks_.push_back(IrChunk());
+    chunks_.back().label = l;
+    chunks_.back().hasLabel = true;
+    open_ = true;
+    unreachable_ = false;
+}
+
+// An event lands before the code of the chunk it precedes: on the open chunk
+// while nothing has been written to it, else on a fresh one.
+void Optimizer::event(std::function<void()> f) {
+    if (chunks_.empty()) { f(); return; }
+    IrChunk &c = (open_ && chunks_.back().ins.empty()) ? chunks_.back() : chunk();
+    (c.hasLabel ? c.after : c.before).push_back(std::move(f));
+}
+
+// **Which chunk each one leads to.** A chunk ends at a terminator or where a
+// label or an event began the next, and falls into that next one unless it
+// left by a jump or a return.
+
+// A jump names a label; one defined elsewhere - the function was cut - is a
+// target this graph cannot see.
+void Optimizer::connect() {
+    std::map<std::string, int> at;
+    for (std::size_t k = 0; k < chunks_.size(); k++)
+        if (chunks_[k].hasLabel) at[chunks_[k].label] = static_cast<int>(k);
+    for (std::size_t k = 0; k < chunks_.size(); k++) {
+        IrChunk &c = chunks_[k];
+        c.fall = -1; c.target = -1;
+        const bool next = k + 1 < chunks_.size();
+        if (c.ins.empty()) { c.fall = next ? static_cast<int>(k + 1) : -2; continue; }
+        const IrIns &last = c.ins.back();
+        const bool jump = !last.m.empty() && last.m[0] == 'j';
+        if (jump) {
+            std::map<std::string, int>::const_iterator it =
+                last.operands == 1 && last.a.kind == Op::Lbl ? at.find(last.a.text) : at.end();
+            c.target = it == at.end() ? -2 : it->second;
+        }
+        if (last.m == "ret") continue;
+        if (last.m != "jmp") c.fall = next ? static_cast<int>(k + 1) : -2;
+    }
+}
+
+// **Liveness across the graph.** Each chunk's gen is what it reads before it
+// writes, its kill what it writes whole; in = gen | (out & ~kill), out the
+// union over its successors - everything where one is unseen, nothing after a return.
+
+// Backward to a fixpoint; the flags the same way.
+void Optimizer::flow() {
+    for (IrChunk &c : chunks_) {
+        unsigned live = 0, kill = 0;
+        bool flags = false, fkill = false;
+        for (std::size_t k = c.ins.size(); k-- > 0;) {
+            if (!c.ins[k].semValid) refresh(c.ins[k]);
+            const IrSem &s = c.ins[k].sem;
+            live = s.use | (live & ~s.def);
+            kill |= s.def;
+            flags = s.flagsUse || (flags && !s.flagsDef);
+            fkill = fkill || s.flagsDef;
+        }
+        c.gen = live; c.kill = kill; c.flagsGen = flags; c.flagsKill = fkill;
+        c.liveIn = live; c.flagsIn = flags;
+    }
+    for (int round = 0; round < 64; round++) {
+        bool changed = false;
+        for (std::size_t k = chunks_.size(); k-- > 0;) {
+            IrChunk &c = chunks_[k];
+            unsigned out = 0;
+            bool fout = false;
+            if (c.fall == -2 || c.target == -2) { out = kAll; fout = true; }
+            if (c.fall >= 0)   { out |= chunks_[c.fall].liveIn;   fout = fout || chunks_[c.fall].flagsIn; }
+            if (c.target >= 0) { out |= chunks_[c.target].liveIn; fout = fout || chunks_[c.target].flagsIn; }
+            if (!c.ins.empty() && c.ins.back().sem.cls == IrSem::Call) fout = false;
+            unsigned in = c.gen | (out & ~c.kill);
+            bool fin = c.flagsGen || (fout && !c.flagsKill);
+            if (out != c.liveOut || in != c.liveIn || fout != c.flagsOut || fin != c.flagsIn) changed = true;
+            c.liveOut = out; c.liveIn = in; c.flagsOut = fout; c.flagsIn = fin;
+        }
+        if (!changed) break;
+    }
 }
 
 void Optimizer::replay() {
-    for (const IrIns &i : run_) {
-        switch (i.operands) {
-        case 0: under_->ins(i.m); break;
-        case 1: under_->ins(i.m, i.a.view()); break;
-        default: under_->ins(i.m, i.a.view(), i.b.view()); break;
+    for (IrChunk &c : chunks_) {
+        for (std::function<void()> &f : c.before) f();
+        if (c.hasLabel) under_->defLabel(c.label);
+        for (std::function<void()> &f : c.after) f();
+        for (const IrIns &i : c.ins) {
+            switch (i.operands) {
+            case 0: under_->ins(i.m); break;
+            case 1: under_->ins(i.m, i.a.view()); break;
+            default: under_->ins(i.m, i.a.view(), i.b.view()); break;
+            }
         }
     }
-    run_.clear();
+    chunks_.clear();
+    open_ = false;
 }
 
-// The text is about to be read, cut, or continued by something that is not
-// an instruction - which may be a label, so what follows is reachable.
+// The text is about to be read, cut, or continued by something that cannot
+// stay inside the function: what is held is optimized - twice, since a chunk
+// that reads less leaves less live for the ones before it - and written out.
 void Optimizer::flush() {
-    endRun();
+    if (level_ >= 1 && !chunks_.empty()) {
+        connect();
+        for (int round = 0; round < 2; round++) {
+            flow();
+            for (IrChunk &c : chunks_) {
+                if (c.ins.empty()) continue;
+                run_.swap(c.ins);
+                initLive_ = c.liveOut;
+                initFlags_ = c.flagsOut;
+                optimize();
+                run_.swap(c.ins);
+            }
+        }
+    }
+    replay();
     unreachable_ = false;
 }
 
@@ -650,6 +757,7 @@ void Optimizer::optimize() {
         if (fuseLeas())       { changed = true; compact(); analyse(); }
         if (pairStack())      { changed = true; compact(); analyse(); }
         if (retargetDefs())   { changed = true; compact(); analyse(); }
+        if (renameThroughPair()) { changed = true; compact(); analyse(); }
         if (propagateCopies()){ changed = true; compact(); }
         if (!changed) break;
     }
@@ -667,10 +775,7 @@ void Optimizer::compact() {
 }
 
 // **What each instruction does, and what is live after it.** Backward over
-// the run; the end of a run is a label or a branch, where everything is
-// live - except after a `ret`, where only what a caller may read is.
-
-// Flags likewise, and dead at a `call` or a `ret`: no ABI passes them.
+// the run, from what the graph says follows it - see flow().
 void Optimizer::analyse() {
     const std::size_t n = run_.size();
     liveOut_.resize(n);
@@ -678,13 +783,8 @@ void Optimizer::analyse() {
     for (std::size_t i = 0; i < n; i++)
         if (!run_[i].semValid) refresh(run_[i]);
 
-    unsigned live = kAll;
-    bool flags = true;
-    if (n != 0) {
-        const IrSem::Class last = run_[n - 1].sem.cls;
-        if (last == IrSem::Ret) live = 0;
-        if (last == IrSem::Ret || last == IrSem::Call) flags = false;
-    }
+    unsigned live = initLive_;
+    bool flags = initFlags_;
     for (std::size_t k = n; k-- > 0;) {
         const IrSem &s = run_[k].sem;
         liveOut_[k] = live;
@@ -963,6 +1063,93 @@ bool Optimizer::retargetDefs() {
     return changed;
 }
 
+// Whether x touches register r without naming it - cqo's rax, a shift's rcx.
+static bool implicitly(const IrIns &x, const IrSem &s, int r) {
+    if (((s.use | s.def | s.part) & bit(r)) == 0) return false;
+    int w;
+    for (int k = 0; k < x.operands; k++)
+        if (namesReg(k == 0 ? x.a : x.b, r, w)) return false;
+    return true;
+}
+
+// **A value saved round a computation that only needed another register.**
+// To compute an address into the scratch register the walker writes `push
+// %rax ; ... into %rax ; mov %rax, %r10 ; pop %rax` - 1,400 times over sixteen files.
+
+// When the middle writes %rax whole before it reads it, reads it nowhere
+// implicitly, and never touches %r10 or the stack, it can be written in %r10
+// from the start, and the push, the copy and the pop all go.
+bool Optimizer::renameThroughPair() {
+    bool changed = false;
+    const std::size_t n = run_.size();
+    for (std::size_t i = 0; i + 2 < n; i++) {
+        IrIns &p = run_[i];
+        if (p.dead || !isStackOp(p, "push")) continue;
+        int x;
+        if (!isGpr64(p.a, x) || !allocatable(x)) continue;
+
+        // The middle: up to the copy out, which the pop of the same register follows.
+        bool defined = false, ok = true;
+        std::size_t j = i + 1;
+        for (; j < n && ok; j++) {
+            if (j - i > kScanLimit) { ok = false; break; }
+            const IrIns &q = run_[j];
+            if (q.dead) continue;
+            const IrSem &s = q.sem;
+            if (isStackOp(q, "pop")) break;
+            if (s.cls == IrSem::Unknown || s.cls == IrSem::Call) { ok = false; break; }
+            if ((s.use | s.def | s.part) & bit(kRsp)) { ok = false; break; }
+            if (implicitly(q, s, x)) { ok = false; break; }
+            if (!defined) {
+                if ((s.use | s.part) & bit(x)) { ok = false; break; }
+                if (s.def & bit(x)) defined = true;
+            }
+        }
+        if (!ok || j >= n || !defined) continue;
+        IrIns &q = run_[j];
+        int y;
+        if (!isGpr64(q.a, y) || y != x) continue;
+
+        // The last of the middle is `mov x, r`, r otherwise untouched in it.
+        std::size_t c = j;
+        while (c > i + 1 && run_[c - 1].dead) c--;
+        c--;
+        if (c <= i) continue;
+        IrIns &copy = run_[c];
+        int ra, r;
+        if (!isMov64(copy) || !isGpr64(copy.a, ra) || !isGpr64(copy.b, r)) continue;
+        if (ra != x || r == x || !allocatable(r)) continue;
+        for (std::size_t k = i + 1; k < c && ok; k++) {
+            if (run_[k].dead) continue;
+            const IrSem &s = run_[k].sem;
+            if ((s.use | s.def | s.part) & bit(r)) ok = false;
+            // Every naming of x must be one a rename can spell in r.
+            int w;
+            for (int o = 0; o < run_[k].operands && ok; o++)
+                if (namesReg(o == 0 ? run_[k].a : run_[k].b, x, w) && (w == 0 || w == 16)) ok = false;
+        }
+        if (!ok) continue;
+
+        for (std::size_t k = i + 1; k < c; k++) {
+            IrIns &m = run_[k];
+            if (m.dead) continue;
+            int w;
+            bool touched = false;
+            for (int o = 0; o < m.operands; o++) {
+                IrOp &op = o == 0 ? m.a : m.b;
+                if (namesReg(op, x, w)) { op.text = regName(r, w); touched = true; }
+            }
+            if (touched) refresh(m);
+        }
+        p.dead = copy.dead = q.dead = true;
+        removed_ += 3;
+        changed = true;
+        i = j;
+    }
+    return changed;
+}
+
+
 // **A copy whose destination dies before the run ends, or is overwritten in
 // it**: every read of the destination between reads the source instead,
 // and the copy goes.
@@ -1061,6 +1248,26 @@ void Optimizer::shorten() {
                 continue;
             }
         }
+        // lea D(b), %r ; add $n, %r is lea D+n(b), %r where nothing reads the
+        // flags the add would have set: four bytes for eight.
+        if (x.m == "lea" && x.operands == 2 && x.a.kind == Op::Mem && i + 1 < n) {
+            IrIns &y = run_[i + 1];
+            int r, r2;
+            if (!y.dead && y.m == "add" && y.operands == 2 && y.a.kind == Op::Imm &&
+                y.a.immNumeric && isGpr64(x.b, r) && isGpr64(y.b, r2) && r == r2 &&
+                !flagsLiveOut_[i + 1] && x.a.text != x.b.text) {
+                long long d = x.a.hasDisp ? x.a.disp : 0;
+                long long add = y.a.immNeg ? -static_cast<long long>(y.a.uimm)
+                                           : static_cast<long long>(y.a.uimm);
+                if (y.a.uimm < (1ull << 31) && d + add < (1ll << 31) && d + add >= -(1ll << 31)) {
+                    x.a.disp = d + add;
+                    x.a.hasDisp = x.a.disp != 0;
+                    y.dead = true;
+                    removed_++;
+                }
+            }
+            continue;
+        }
         if (x.m == "movl" && x.operands == 2 && isZeroImm(x.a) && x.b.kind == Op::Reg &&
             !flagsLiveOut_[i]) {
             int w;
@@ -1098,9 +1305,8 @@ void Optimizer::shorten() {
 }
 
 // ---------------------------------------------------------------------------
-// Everything else ends the run and goes through in order.
+// Everything else ends the function's text and goes through in order.
 
-void Optimizer::defLabel(const std::string &l) { interrupt(); under_->defLabel(l); }
 void Optimizer::functionBegin(const std::string &name, bool exported, bool mergeable) {
     interrupt(); under_->functionBegin(name, exported, mergeable);
 }
@@ -1110,7 +1316,7 @@ void Optimizer::prologue(int frameSize, const std::string &lsda) {
 void Optimizer::functionEnd(const std::string &name) { interrupt(); under_->functionEnd(name); }
 void Optimizer::fileEntry(int n, const std::string &name) { interrupt(); under_->fileEntry(n, name); }
 void Optimizer::location(int file, int line, int column) {
-    interrupt(); under_->location(file, line, column);
+    event([this, file, line, column]() { under_->location(file, line, column); });
 }
 void Optimizer::predefine(const std::vector<std::string> &names) { interrupt(); under_->predefine(names); }
 void Optimizer::preamble(std::ostream &o) { interrupt(); under_->preamble(o); }
@@ -1124,7 +1330,7 @@ void Optimizer::bssSection() { interrupt(); under_->bssSection(); }
 void Optimizer::objectType(const std::string &name) { interrupt(); under_->objectType(name); }
 void Optimizer::objectSize(const std::string &name, int size) { interrupt(); under_->objectSize(name, size); }
 void Optimizer::align(int n) { interrupt(); under_->align(n); }
-void Optimizer::loopAlign() { interrupt(); under_->loopAlign(); }
+void Optimizer::loopAlign() { event([this]() { under_->loopAlign(); }); }
 void Optimizer::zero(int n) { interrupt(); under_->zero(n); }
 void Optimizer::dataInt(int size, long long v) { interrupt(); under_->dataInt(size, v); }
 void Optimizer::dataSym(const std::string &sym, long long off) { interrupt(); under_->dataSym(sym, off); }

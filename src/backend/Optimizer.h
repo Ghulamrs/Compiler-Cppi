@@ -2,12 +2,13 @@
 
 #include "Spelling.h"
 
+#include <functional>
 #include <string>
 #include <vector>
 
 // **An instruction IR between the walker and the spelling.** The walker's
-// instructions are kept in owned form until a straight-line run ends, rewritten,
-// and only then handed to the real spelling; an Op's Str is a view, so it is copied.
+// instructions are kept in owned form until the function ends - or the text is
+// read - rewritten, and only then handed to the real spelling; an Op's Str is a view, so it is copied.
 struct IrOp {
     Op::Kind kind = Op::Reg;
     std::string text;
@@ -74,6 +75,21 @@ struct IrIns {
     bool semValid = false;
 };
 
+// **A basic block, with what surrounds it in the text.** A chunk starts at a
+// label or after a terminator and ends at the next; the events are the spelling
+// calls that fell between instructions, replayed where they came. The CFG fields are filled at flush.
+struct IrChunk {
+    std::vector<std::function<void()>> before;  // before the label
+    std::string label;
+    bool hasLabel = false;
+    std::vector<std::function<void()>> after;   // after the label, before the code
+    std::vector<IrIns> ins;
+    int fall = -1;            // the chunk fallen into, or -1
+    int target = -1;          // a jump's chunk, -1 for none, -2 for one not here
+    unsigned gen = 0, kill = 0, liveIn = 0, liveOut = 0;
+    bool flagsGen = false, flagsKill = false, flagsIn = false, flagsOut = false;
+};
+
 // **One of these per code generator, and so per file** - the driver compiles
 // files on a thread pool, and nothing here is shared between two of them:
 // every table below is a constant, every vector a member.
@@ -126,12 +142,17 @@ public:
 private:
     Spelling *under_ = nullptr;
     int level_ = 0;
-    // The straight-line run being collected. A label, a branch, or anything
-    // that is not an instruction ends it.
+    // The function so far, as chunks; run_ is the one the passes are working on.
+    std::vector<IrChunk> chunks_;
+    // Whether the last chunk still takes instructions - false after a terminator.
+    bool open_ = false;
     std::vector<IrIns> run_;
     unsigned long removed_ = 0;
     // True after a jmp or a ret with no label since: nothing reaches there.
     bool unreachable_ = false;
+    // What is live, and whether the flags are, after the run being optimized.
+    unsigned initLive_ = 0;
+    bool initFlags_ = false;
 
     // Per-run scratch, kept as members so the storage is reused run to run.
     std::vector<unsigned> liveOut_;
@@ -139,10 +160,15 @@ private:
     std::vector<IrIns> kept_;
 
     void add(IrIns &&i);
-    void endRun();
-    // Everything that is not an instruction: writes the run out, and what
-    // follows may be a label, so is reachable again.
+    IrChunk &chunk();
+    // A spelling call from inside a function, kept in its place.
+    void event(std::function<void()> f);
+    // Everything that cannot stay inside a function: writes it all out first.
     void interrupt();
+    // Liveness over the chunks' graph, then each chunk optimized with what
+    // really follows it, then all of it replayed in order.
+    void connect();
+    void flow();
     void optimize();
     void replay();
 
@@ -155,6 +181,7 @@ private:
     bool fuseLeas();
     bool pairStack();
     bool retargetDefs();
+    bool renameThroughPair();
     bool propagateCopies();
     void shorten();
 };
