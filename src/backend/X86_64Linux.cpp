@@ -1362,6 +1362,7 @@ static const Walker::LsdaSpelling kElfLsda = {
 };
 
 void X86_64Linux::emitLsda(const std::string &symbol) {
+    opt_.flush();
     std::string &o = out_;
     o += lsdaTable(kElfLsda, symbol, lsdaTypes_);
 
@@ -1400,6 +1401,7 @@ std::string X86_64Linux::userLabel(const std::string &name) const {
 }
 
 void X86_64Linux::finishChunk() {
+    opt_.flush();
     chunks_.push_back(out_);
     out_.clear();
 }
@@ -1609,6 +1611,7 @@ void X86_64Linux::emit(const Function &fn) {
 // appends its code like any other, so remembering where that began and cutting
 // back to it gives the body exactly - and the code generator knows none of it.
 std::string X86_64Linux::beginFunclet() {
+    opt_.flush();
     funcletMark_ = out_.size();
     funcletSymbol_ = "$" + std::string(funcletKind_).substr(1) +
                      std::to_string(funcletIndex_++) + "$" + fnSymbol_;
@@ -1633,6 +1636,7 @@ void X86_64Linux::storeUnwindHelp(int slot) {
 
 // **The funclet's own frame, and the assembler writes its unwind data.**
 void X86_64Linux::closeFunclet(const std::string &tail) {
+    opt_.flush();
     std::string body = out_.substr(funcletMark_);
     out_.resize(funcletMark_);
 

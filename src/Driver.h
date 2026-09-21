@@ -26,6 +26,8 @@ private:
     bool assemblyOnly_ = false;
     bool debug_ = false;
     bool objectOnly_ = false;
+    // -O0, -O1 or -O2: how hard the code generator optimizes.
+    int optimize_ = 0;
     unsigned threads_ = 0;
     // **Which assembler the Windows target is written for.**
     bool gnuAsm_ = true;

@@ -592,6 +592,7 @@ void MasmCodeGen::storeUnwindHelp(int slot) {
 // appends its code like any other, so remembering where that began and cutting
 // back to it gives the body exactly - and the code generator knows none of it.
 std::string MasmCodeGen::beginFunclet() {
+    opt_.flush();
     masm_.raw("");                       // nothing pending inside the slice
     funcletMark_ = out_.size();
     funcletSymbol_ = masm_.mangledName() + funcletKind_ +
@@ -612,6 +613,7 @@ void MasmCodeGen::endFunclet(const std::string &resume) {
 }
 
 void MasmCodeGen::closeFunclet(const std::string &tail) {
+    opt_.flush();
     masm_.raw("");
     std::string body = out_.substr(funcletMark_);
     out_.resize(funcletMark_);
@@ -713,6 +715,7 @@ void MasmCodeGen::emitCleanupTables(const Function &fn) {
 }
 
 void MasmCodeGen::emitExceptionTables(const Function &fn) {
+    opt_.flush();
     if (msTries().empty()) {
         if (!callSites().empty()) emitLsda(fn.symbol());
         out_ += funclets_;

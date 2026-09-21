@@ -2,6 +2,7 @@
 
 #include "Backend.h"
 #include "Dwarf.h"
+#include "Optimizer.h"
 #include "Spelling.h"
 #include "Walker.h"
 
@@ -40,6 +41,14 @@ public:
     X86_64Linux(std::ostream &sink, const Target &target, const Abi &abi)
         : target_(target), sink_(sink), abi_(abi) {
         if (target.microsoftNames()) a_ = &coff_;
+    }
+
+    // **The IR goes in front of whichever spelling the target chose**, and only
+    // when asked: at -O0 the walker speaks to the spelling directly, as before.
+    void setOptimize(int level) override {
+        if (level < 1) return;
+        opt_.wrap(a_, level);
+        a_ = &opt_;
     }
 
     using Walker::visit;
@@ -102,8 +111,11 @@ protected:
     std::string funcletPdata_;
 
     std::string out_;
-    std::size_t emittedSize() override { return out_.size(); }
+    // Measured after the IR has written out, so the count is of real text.
+    std::size_t emittedSize() override { opt_.flush(); return out_.size(); }
     Spelling *a_ = &gnu_;
+    // The optional IR in front of a_ - see setOptimize; flushed before out_ is read or cut.
+    Optimizer opt_;
 
     void landingPad(int pointerSlot, int selectorSlot) override;
 
@@ -122,6 +134,7 @@ protected:
 
     // Whatever this target writes after a function to describe its handlers.
     virtual void emitExceptionTables(const Function &fn) {
+        opt_.flush();
         // Microsoft frames carry FH3 tables, not an LSDA.
         if (target_.microsoftNames()) {
             // **Cleanups and handlers never share a function**, which the

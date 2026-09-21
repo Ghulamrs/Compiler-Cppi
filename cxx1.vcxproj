@@ -80,6 +80,7 @@
     <ClCompile Include="src\backend\Backend.cpp" />
     <ClCompile Include="src\backend\Dwarf.cpp" />
     <ClCompile Include="src\backend\Masm.cpp" />
+    <ClCompile Include="src\backend\Optimizer.cpp" />
     <ClCompile Include="src\backend\Spelling.cpp" />
     <ClCompile Include="src\backend\Tms6747.cpp" />
     <ClCompile Include="src\backend\Walker.cpp" />
