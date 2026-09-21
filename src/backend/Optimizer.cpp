@@ -58,7 +58,6 @@ constexpr const char *const kGprNames[kGprCount][4] = {
     { "%r14", "%r14d", "%r14w", "%r14b" },
     { "%r15", "%r15d", "%r15w", "%r15b" },
 };
-constexpr int kWidths[4] = { 8, 4, 2, 1 };
 
 // **Which 64-bit register a name is, and how wide the name is.** The high
 // bytes %ah..%dh answer with width 0: they alias their register, so they count
@@ -80,20 +79,58 @@ int regLookup(const std::string &name, int &width) {
         width = 16;
         return kXmm0 + n;
     }
-    if (name.compare(0, 3, "%st") == 0) return -2;
-    for (int c = 0; c < kGprCount; c++)
-        for (int w = 0; w < 4; w++)
-            if (name == kGprNames[c][w]) { width = kWidths[w]; return c; }
-    if (name.size() == 3 && name[2] == 'h') {
-        switch (name[1]) {
-        case 'a': return kRax;
-        case 'b': return kRbx;
-        case 'c': return kRcx;
-        case 'd': return kRdx;
-        default: break;
+    if (name[1] == 's' && name[2] == 't') return -2;
+    const std::size_t n = name.size();
+    // r8..r15, with d, w or b for the narrower names.
+    if (name[1] == 'r' && name[2] >= '0' && name[2] <= '9') {
+        int v = name[2] - '0';
+        std::size_t i = 3;
+        if (i < n && name[i] >= '0' && name[i] <= '9') v = v * 10 + (name[i++] - '0');
+        if (v < 8 || v > 15) return -1;
+        if (i == n) { width = 8; return v; }
+        if (i + 1 != n) return -1;
+        switch (name[i]) {
+        case 'd': width = 4; return v;
+        case 'w': width = 2; return v;
+        case 'b': width = 1; return v;
+        default: return -1;
         }
     }
-    return -1;
+    // The eight legacy registers: a two-letter core, with r or e in front for
+    // the wide names, and l behind for the low byte of si, di, bp and sp.
+    std::size_t at = 1;
+    int w = 2;
+    if (name[1] == 'r') { at = 2; w = 8; }
+    else if (name[1] == 'e') { at = 2; w = 4; }
+    if (at + 2 != n && at + 3 != n) return -1;
+    const char c0 = name[at], c1 = name[at + 1];
+    int r = -1;
+    bool eightBit = false;
+    if (c1 == 'x' || c1 == 'l' || c1 == 'h') {
+        switch (c0) {
+        case 'a': r = kRax; break;
+        case 'b': r = kRbx; break;
+        case 'c': r = kRcx; break;
+        case 'd': r = kRdx; break;
+        default: return -1;
+        }
+        if (c1 != 'x') {
+            if (w != 2) return -1;
+            eightBit = true;
+            w = c1 == 'l' ? 1 : 0;
+        }
+    } else if (c0 == 's' && c1 == 'i') r = kRsi;
+    else if (c0 == 'd' && c1 == 'i') r = kRdi;
+    else if (c0 == 'b' && c1 == 'p') r = kRbp;
+    else if (c0 == 's' && c1 == 'p') r = kRsp;
+    else return -1;
+    if (at + 3 == n) {
+        // sil, dil, bpl, spl - and nothing else has a third letter.
+        if (eightBit || w != 2 || name[at + 2] != 'l' || r < kRsi) return -1;
+        w = 1;
+    }
+    width = w;
+    return r;
 }
 
 const char *regName(int canon, int width) {
@@ -114,131 +151,135 @@ enum { kFlagsDef = 1, kFlagsUse = 2 };
 
 struct Mnemonic {
     const char *name;
+    unsigned char len;
     IrSem::Class cls;
     unsigned char flags;
 };
+// The length is part of the entry, so a lookup is a length test and a memcmp.
+#define MN(name, cls, flags) { name, sizeof(name) - 1, cls, flags }
 
 // **Every mnemonic the x86-64 walker writes, and what it does.** A mnemonic
 // that is not here is Unknown, which reads and writes everything - so a new
 // instruction in the walker costs an optimisation, never a miscompile.
 constexpr Mnemonic kMnemonics[] = {
-    { "mov", IrSem::Move, 0 },       { "movq", IrSem::Move, 0 },
-    { "movl", IrSem::Move, 0 },      { "movw", IrSem::Move, 0 },
-    { "movb", IrSem::Move, 0 },      { "movabs", IrSem::Move, 0 },
-    { "movzbq", IrSem::Move, 0 },    { "movzbl", IrSem::Move, 0 },
-    { "movzwq", IrSem::Move, 0 },    { "movzwl", IrSem::Move, 0 },
-    { "movzbw", IrSem::Move, 0 },
-    { "movsbq", IrSem::Move, 0 },    { "movswq", IrSem::Move, 0 },
-    { "movslq", IrSem::Move, 0 },    { "movsbl", IrSem::Move, 0 },
-    { "movswl", IrSem::Move, 0 },    { "movsbw", IrSem::Move, 0 },
-    { "lea", IrSem::Move, 0 },
-    { "movsd", IrSem::Move, 0 },     { "movss", IrSem::Move, 0 },
-    { "movd", IrSem::Move, 0 },      { "movaps", IrSem::Move, 0 },
-    { "movapd", IrSem::Move, 0 },    { "movdqa", IrSem::Move, 0 },
-    { "movups", IrSem::Move, 0 },    { "movupd", IrSem::Move, 0 },
-    { "cvtsi2sdq", IrSem::Move, 0 }, { "cvtsi2sdl", IrSem::Move, 0 },
-    { "cvtsi2sd", IrSem::Move, 0 },  { "cvtsi2ssq", IrSem::Move, 0 },
-    { "cvtsi2ssl", IrSem::Move, 0 }, { "cvtsi2ss", IrSem::Move, 0 },
-    { "cvttsd2si", IrSem::Move, 0 }, { "cvttsd2siq", IrSem::Move, 0 },
-    { "cvttsd2sil", IrSem::Move, 0 },{ "cvttss2si", IrSem::Move, 0 },
-    { "cvttss2siq", IrSem::Move, 0 },{ "cvttss2sil", IrSem::Move, 0 },
-    { "cvtss2sd", IrSem::Move, 0 },  { "cvtsd2ss", IrSem::Move, 0 },
-    { "sqrtsd", IrSem::Move, 0 },    { "sqrtss", IrSem::Move, 0 },
+    MN("mov", IrSem::Move, 0),       MN("movq", IrSem::Move, 0),
+    MN("movl", IrSem::Move, 0),      MN("movw", IrSem::Move, 0),
+    MN("movb", IrSem::Move, 0),      MN("movabs", IrSem::Move, 0),
+    MN("movzbq", IrSem::Move, 0),    MN("movzbl", IrSem::Move, 0),
+    MN("movzwq", IrSem::Move, 0),    MN("movzwl", IrSem::Move, 0),
+    MN("movzbw", IrSem::Move, 0),
+    MN("movsbq", IrSem::Move, 0),    MN("movswq", IrSem::Move, 0),
+    MN("movslq", IrSem::Move, 0),    MN("movsbl", IrSem::Move, 0),
+    MN("movswl", IrSem::Move, 0),    MN("movsbw", IrSem::Move, 0),
+    MN("lea", IrSem::Move, 0),
+    MN("movsd", IrSem::Move, 0),     MN("movss", IrSem::Move, 0),
+    MN("movd", IrSem::Move, 0),      MN("movaps", IrSem::Move, 0),
+    MN("movapd", IrSem::Move, 0),    MN("movdqa", IrSem::Move, 0),
+    MN("movups", IrSem::Move, 0),    MN("movupd", IrSem::Move, 0),
+    MN("cvtsi2sdq", IrSem::Move, 0), MN("cvtsi2sdl", IrSem::Move, 0),
+    MN("cvtsi2sd", IrSem::Move, 0),  MN("cvtsi2ssq", IrSem::Move, 0),
+    MN("cvtsi2ssl", IrSem::Move, 0), MN("cvtsi2ss", IrSem::Move, 0),
+    MN("cvttsd2si", IrSem::Move, 0), MN("cvttsd2siq", IrSem::Move, 0),
+    MN("cvttsd2sil", IrSem::Move, 0),MN("cvttss2si", IrSem::Move, 0),
+    MN("cvttss2siq", IrSem::Move, 0),MN("cvttss2sil", IrSem::Move, 0),
+    MN("cvtss2sd", IrSem::Move, 0),  MN("cvtsd2ss", IrSem::Move, 0),
+    MN("sqrtsd", IrSem::Move, 0),    MN("sqrtss", IrSem::Move, 0),
 
-    { "add", IrSem::Rmw, kFlagsDef },  { "sub", IrSem::Rmw, kFlagsDef },
-    { "and", IrSem::Rmw, kFlagsDef },  { "or", IrSem::Rmw, kFlagsDef },
-    { "xor", IrSem::Rmw, kFlagsDef },  { "imul", IrSem::Rmw, kFlagsDef },
-    { "addq", IrSem::Rmw, kFlagsDef }, { "subq", IrSem::Rmw, kFlagsDef },
-    { "andq", IrSem::Rmw, kFlagsDef }, { "orq", IrSem::Rmw, kFlagsDef },
-    { "xorq", IrSem::Rmw, kFlagsDef }, { "imulq", IrSem::Rmw, kFlagsDef },
-    { "addl", IrSem::Rmw, kFlagsDef }, { "subl", IrSem::Rmw, kFlagsDef },
-    { "andl", IrSem::Rmw, kFlagsDef }, { "orl", IrSem::Rmw, kFlagsDef },
-    { "xorl", IrSem::Rmw, kFlagsDef }, { "imull", IrSem::Rmw, kFlagsDef },
-    { "addw", IrSem::Rmw, kFlagsDef }, { "subw", IrSem::Rmw, kFlagsDef },
-    { "andw", IrSem::Rmw, kFlagsDef }, { "orw", IrSem::Rmw, kFlagsDef },
-    { "xorw", IrSem::Rmw, kFlagsDef },
-    { "addb", IrSem::Rmw, kFlagsDef }, { "subb", IrSem::Rmw, kFlagsDef },
-    { "andb", IrSem::Rmw, kFlagsDef }, { "orb", IrSem::Rmw, kFlagsDef },
-    { "xorb", IrSem::Rmw, kFlagsDef },
+    MN("add", IrSem::Rmw, kFlagsDef),  MN("sub", IrSem::Rmw, kFlagsDef),
+    MN("and", IrSem::Rmw, kFlagsDef),  MN("or", IrSem::Rmw, kFlagsDef),
+    MN("xor", IrSem::Rmw, kFlagsDef),  MN("imul", IrSem::Rmw, kFlagsDef),
+    MN("addq", IrSem::Rmw, kFlagsDef), MN("subq", IrSem::Rmw, kFlagsDef),
+    MN("andq", IrSem::Rmw, kFlagsDef), MN("orq", IrSem::Rmw, kFlagsDef),
+    MN("xorq", IrSem::Rmw, kFlagsDef), MN("imulq", IrSem::Rmw, kFlagsDef),
+    MN("addl", IrSem::Rmw, kFlagsDef), MN("subl", IrSem::Rmw, kFlagsDef),
+    MN("andl", IrSem::Rmw, kFlagsDef), MN("orl", IrSem::Rmw, kFlagsDef),
+    MN("xorl", IrSem::Rmw, kFlagsDef), MN("imull", IrSem::Rmw, kFlagsDef),
+    MN("addw", IrSem::Rmw, kFlagsDef), MN("subw", IrSem::Rmw, kFlagsDef),
+    MN("andw", IrSem::Rmw, kFlagsDef), MN("orw", IrSem::Rmw, kFlagsDef),
+    MN("xorw", IrSem::Rmw, kFlagsDef),
+    MN("addb", IrSem::Rmw, kFlagsDef), MN("subb", IrSem::Rmw, kFlagsDef),
+    MN("andb", IrSem::Rmw, kFlagsDef), MN("orb", IrSem::Rmw, kFlagsDef),
+    MN("xorb", IrSem::Rmw, kFlagsDef),
     // A shift by zero leaves the flags alone, so a shift is neither a
     // writer to stop at nor a reader; the flags stay live through it.
-    { "shl", IrSem::Rmw, 0 },  { "sal", IrSem::Rmw, 0 },
-    { "sar", IrSem::Rmw, 0 },  { "shr", IrSem::Rmw, 0 },
-    { "shlq", IrSem::Rmw, 0 }, { "salq", IrSem::Rmw, 0 },
-    { "sarq", IrSem::Rmw, 0 }, { "shrq", IrSem::Rmw, 0 },
-    { "shll", IrSem::Rmw, 0 }, { "sall", IrSem::Rmw, 0 },
-    { "sarl", IrSem::Rmw, 0 }, { "shrl", IrSem::Rmw, 0 },
-    { "shlw", IrSem::Rmw, 0 }, { "sarw", IrSem::Rmw, 0 },
-    { "shrw", IrSem::Rmw, 0 }, { "shlb", IrSem::Rmw, 0 },
-    { "sarb", IrSem::Rmw, 0 }, { "shrb", IrSem::Rmw, 0 },
-    { "addsd", IrSem::Rmw, 0 }, { "subsd", IrSem::Rmw, 0 },
-    { "mulsd", IrSem::Rmw, 0 }, { "divsd", IrSem::Rmw, 0 },
-    { "addss", IrSem::Rmw, 0 }, { "subss", IrSem::Rmw, 0 },
-    { "mulss", IrSem::Rmw, 0 }, { "divss", IrSem::Rmw, 0 },
-    { "minsd", IrSem::Rmw, 0 }, { "maxsd", IrSem::Rmw, 0 },
-    { "pxor", IrSem::Rmw, 0 },  { "xorps", IrSem::Rmw, 0 },
-    { "xorpd", IrSem::Rmw, 0 }, { "andps", IrSem::Rmw, 0 },
-    { "andpd", IrSem::Rmw, 0 }, { "orps", IrSem::Rmw, 0 },
-    { "orpd", IrSem::Rmw, 0 },
+    MN("shl", IrSem::Rmw, 0),  MN("sal", IrSem::Rmw, 0),
+    MN("sar", IrSem::Rmw, 0),  MN("shr", IrSem::Rmw, 0),
+    MN("shlq", IrSem::Rmw, 0), MN("salq", IrSem::Rmw, 0),
+    MN("sarq", IrSem::Rmw, 0), MN("shrq", IrSem::Rmw, 0),
+    MN("shll", IrSem::Rmw, 0), MN("sall", IrSem::Rmw, 0),
+    MN("sarl", IrSem::Rmw, 0), MN("shrl", IrSem::Rmw, 0),
+    MN("shlw", IrSem::Rmw, 0), MN("sarw", IrSem::Rmw, 0),
+    MN("shrw", IrSem::Rmw, 0), MN("shlb", IrSem::Rmw, 0),
+    MN("sarb", IrSem::Rmw, 0), MN("shrb", IrSem::Rmw, 0),
+    MN("addsd", IrSem::Rmw, 0), MN("subsd", IrSem::Rmw, 0),
+    MN("mulsd", IrSem::Rmw, 0), MN("divsd", IrSem::Rmw, 0),
+    MN("addss", IrSem::Rmw, 0), MN("subss", IrSem::Rmw, 0),
+    MN("mulss", IrSem::Rmw, 0), MN("divss", IrSem::Rmw, 0),
+    MN("minsd", IrSem::Rmw, 0), MN("maxsd", IrSem::Rmw, 0),
+    MN("pxor", IrSem::Rmw, 0),  MN("xorps", IrSem::Rmw, 0),
+    MN("xorpd", IrSem::Rmw, 0), MN("andps", IrSem::Rmw, 0),
+    MN("andpd", IrSem::Rmw, 0), MN("orps", IrSem::Rmw, 0),
+    MN("orpd", IrSem::Rmw, 0),
 
-    { "cmp", IrSem::Cmp, kFlagsDef },   { "cmpq", IrSem::Cmp, kFlagsDef },
-    { "cmpl", IrSem::Cmp, kFlagsDef },  { "cmpw", IrSem::Cmp, kFlagsDef },
-    { "cmpb", IrSem::Cmp, kFlagsDef },  { "test", IrSem::Cmp, kFlagsDef },
-    { "testq", IrSem::Cmp, kFlagsDef }, { "testl", IrSem::Cmp, kFlagsDef },
-    { "testw", IrSem::Cmp, kFlagsDef }, { "testb", IrSem::Cmp, kFlagsDef },
-    { "ucomisd", IrSem::Cmp, kFlagsDef }, { "ucomiss", IrSem::Cmp, kFlagsDef },
-    { "comisd", IrSem::Cmp, kFlagsDef },  { "comiss", IrSem::Cmp, kFlagsDef },
+    MN("cmp", IrSem::Cmp, kFlagsDef),   MN("cmpq", IrSem::Cmp, kFlagsDef),
+    MN("cmpl", IrSem::Cmp, kFlagsDef),  MN("cmpw", IrSem::Cmp, kFlagsDef),
+    MN("cmpb", IrSem::Cmp, kFlagsDef),  MN("test", IrSem::Cmp, kFlagsDef),
+    MN("testq", IrSem::Cmp, kFlagsDef), MN("testl", IrSem::Cmp, kFlagsDef),
+    MN("testw", IrSem::Cmp, kFlagsDef), MN("testb", IrSem::Cmp, kFlagsDef),
+    MN("ucomisd", IrSem::Cmp, kFlagsDef), MN("ucomiss", IrSem::Cmp, kFlagsDef),
+    MN("comisd", IrSem::Cmp, kFlagsDef),  MN("comiss", IrSem::Cmp, kFlagsDef),
 
-    { "neg", IrSem::Unary, kFlagsDef },  { "negq", IrSem::Unary, kFlagsDef },
-    { "negl", IrSem::Unary, kFlagsDef }, { "not", IrSem::Unary, 0 },
-    { "notq", IrSem::Unary, 0 },         { "notl", IrSem::Unary, 0 },
+    MN("neg", IrSem::Unary, kFlagsDef),  MN("negq", IrSem::Unary, kFlagsDef),
+    MN("negl", IrSem::Unary, kFlagsDef), MN("not", IrSem::Unary, 0),
+    MN("notq", IrSem::Unary, 0),         MN("notl", IrSem::Unary, 0),
     // inc and dec leave CF, so they are not a writer of all the flags.
-    { "inc", IrSem::Unary, 0 },   { "dec", IrSem::Unary, 0 },
-    { "incq", IrSem::Unary, 0 },  { "decq", IrSem::Unary, 0 },
-    { "incl", IrSem::Unary, 0 },  { "decl", IrSem::Unary, 0 },
+    MN("inc", IrSem::Unary, 0),   MN("dec", IrSem::Unary, 0),
+    MN("incq", IrSem::Unary, 0),  MN("decq", IrSem::Unary, 0),
+    MN("incl", IrSem::Unary, 0),  MN("decl", IrSem::Unary, 0),
 
-    { "push", IrSem::Push, 0 }, { "pushq", IrSem::Push, 0 },
-    { "pop", IrSem::Pop, 0 },   { "popq", IrSem::Pop, 0 },
+    MN("push", IrSem::Push, 0), MN("pushq", IrSem::Push, 0),
+    MN("pop", IrSem::Pop, 0),   MN("popq", IrSem::Pop, 0),
 
-    { "cqo", IrSem::Cqo, 0 },   { "cqto", IrSem::Cqo, 0 },
-    { "cdq", IrSem::Cdq, 0 },   { "cltd", IrSem::Cdq, 0 },
-    { "cltq", IrSem::Cltq, 0 }, { "cdqe", IrSem::Cltq, 0 },
+    MN("cqo", IrSem::Cqo, 0),   MN("cqto", IrSem::Cqo, 0),
+    MN("cdq", IrSem::Cdq, 0),   MN("cltd", IrSem::Cdq, 0),
+    MN("cltq", IrSem::Cltq, 0), MN("cdqe", IrSem::Cltq, 0),
 
     // The flags after a division are undefined, so no reader may depend on
     // what was there before it: it counts as a writer.
-    { "idiv", IrSem::Div, kFlagsDef },  { "div", IrSem::Div, kFlagsDef },
-    { "idivq", IrSem::Div, kFlagsDef }, { "divq", IrSem::Div, kFlagsDef },
-    { "idivl", IrSem::Div, kFlagsDef }, { "divl", IrSem::Div, kFlagsDef },
-    { "mul", IrSem::Div, kFlagsDef },   { "mulq", IrSem::Div, kFlagsDef },
-    { "mull", IrSem::Div, kFlagsDef },
+    MN("idiv", IrSem::Div, kFlagsDef),  MN("div", IrSem::Div, kFlagsDef),
+    MN("idivq", IrSem::Div, kFlagsDef), MN("divq", IrSem::Div, kFlagsDef),
+    MN("idivl", IrSem::Div, kFlagsDef), MN("divl", IrSem::Div, kFlagsDef),
+    MN("mul", IrSem::Div, kFlagsDef),   MN("mulq", IrSem::Div, kFlagsDef),
+    MN("mull", IrSem::Div, kFlagsDef),
 
-    { "fldt", IrSem::X87, 0 },   { "fldl", IrSem::X87, 0 },
-    { "flds", IrSem::X87, 0 },   { "fld", IrSem::X87, 0 },
-    { "fld1", IrSem::X87, 0 },   { "fldz", IrSem::X87, 0 },
-    { "fstpt", IrSem::X87, 0 },  { "fstpl", IrSem::X87, 0 },
-    { "fstps", IrSem::X87, 0 },  { "fstp", IrSem::X87, 0 },
-    { "fildq", IrSem::X87, 0 },  { "fildl", IrSem::X87, 0 },
-    { "fild", IrSem::X87, 0 },   { "fistpq", IrSem::X87, 0 },
-    { "fistpl", IrSem::X87, 0 }, { "fisttpq", IrSem::X87, 0 },
-    { "fisttpl", IrSem::X87, 0 },{ "fldcw", IrSem::X87, 0 },
-    { "fnstcw", IrSem::X87, 0 }, { "fstcw", IrSem::X87, 0 },
-    { "faddp", IrSem::X87, 0 },  { "fsubp", IrSem::X87, 0 },
-    { "fsubrp", IrSem::X87, 0 }, { "fmulp", IrSem::X87, 0 },
-    { "fdivp", IrSem::X87, 0 },  { "fdivrp", IrSem::X87, 0 },
-    { "fxch", IrSem::X87, 0 },   { "fchs", IrSem::X87, 0 },
-    { "fabs", IrSem::X87, 0 },
-    { "fucomip", IrSem::X87, kFlagsDef }, { "fcomip", IrSem::X87, kFlagsDef },
-    { "fucomi", IrSem::X87, kFlagsDef },  { "fcomi", IrSem::X87, kFlagsDef },
+    MN("fldt", IrSem::X87, 0),   MN("fldl", IrSem::X87, 0),
+    MN("flds", IrSem::X87, 0),   MN("fld", IrSem::X87, 0),
+    MN("fld1", IrSem::X87, 0),   MN("fldz", IrSem::X87, 0),
+    MN("fstpt", IrSem::X87, 0),  MN("fstpl", IrSem::X87, 0),
+    MN("fstps", IrSem::X87, 0),  MN("fstp", IrSem::X87, 0),
+    MN("fildq", IrSem::X87, 0),  MN("fildl", IrSem::X87, 0),
+    MN("fild", IrSem::X87, 0),   MN("fistpq", IrSem::X87, 0),
+    MN("fistpl", IrSem::X87, 0), MN("fisttpq", IrSem::X87, 0),
+    MN("fisttpl", IrSem::X87, 0),MN("fldcw", IrSem::X87, 0),
+    MN("fnstcw", IrSem::X87, 0), MN("fstcw", IrSem::X87, 0),
+    MN("faddp", IrSem::X87, 0),  MN("fsubp", IrSem::X87, 0),
+    MN("fsubrp", IrSem::X87, 0), MN("fmulp", IrSem::X87, 0),
+    MN("fdivp", IrSem::X87, 0),  MN("fdivrp", IrSem::X87, 0),
+    MN("fxch", IrSem::X87, 0),   MN("fchs", IrSem::X87, 0),
+    MN("fabs", IrSem::X87, 0),
+    MN("fucomip", IrSem::X87, kFlagsDef), MN("fcomip", IrSem::X87, kFlagsDef),
+    MN("fucomi", IrSem::X87, kFlagsDef),  MN("fcomi", IrSem::X87, kFlagsDef),
 
-    { "call", IrSem::Call, 0 },
-    { "ret", IrSem::Ret, 0 },
-    { "leave", IrSem::Leave, 0 },
-    { "nop", IrSem::Nop, 0 },
+    MN("call", IrSem::Call, 0),
+    MN("ret", IrSem::Ret, 0),
+    MN("leave", IrSem::Leave, 0),
+    MN("nop", IrSem::Nop, 0),
 };
 
 const Mnemonic *findMnemonic(const std::string &m) {
+    const std::size_t n = m.size();
     for (const Mnemonic &e : kMnemonics)
-        if (m == e.name) return &e;
+        if (n == e.len && std::memcmp(m.data(), e.name, n) == 0) return &e;
     return nullptr;
 }
 
@@ -481,6 +522,14 @@ IrOp regOp(const char *name) {
     return o;
 }
 
+void refresh(IrIns &x) {
+    x.sem = describe(x);
+    x.semValid = true;
+}
+
+// How far forward a pass looks from one instruction: a long run costs its length.
+const std::size_t kScanLimit = 256;
+
 // A run ends at anything that can leave it other than by falling through.
 bool endsRun(const std::string &m) {
     return (!m.empty() && m[0] == 'j') || m == "call" || m == "ret";
@@ -616,20 +665,20 @@ void Optimizer::compact() {
 // Flags likewise, and dead at a `call` or a `ret`: no ABI passes them.
 void Optimizer::analyse() {
     const std::size_t n = run_.size();
-    sems_.resize(n);
     liveOut_.resize(n);
     flagsLiveOut_.resize(n);
-    for (std::size_t i = 0; i < n; i++) sems_[i] = describe(run_[i]);
+    for (std::size_t i = 0; i < n; i++)
+        if (!run_[i].semValid) refresh(run_[i]);
 
     unsigned live = kAll;
     bool flags = true;
     if (n != 0) {
-        const IrSem::Class last = sems_[n - 1].cls;
+        const IrSem::Class last = run_[n - 1].sem.cls;
         if (last == IrSem::Ret) live = 0;
         if (last == IrSem::Ret || last == IrSem::Call) flags = false;
     }
     for (std::size_t k = n; k-- > 0;) {
-        const IrSem &s = sems_[k];
+        const IrSem &s = run_[k].sem;
         liveOut_[k] = live;
         flagsLiveOut_[k] = flags ? 1 : 0;
         live = s.use | (live & ~s.def);
@@ -678,6 +727,7 @@ void Optimizer::peephole() {
                 p.m = "mov";
                 p.operands = 2;
                 p.b = i.a;
+                p.semValid = false;
                 removed_++;
             }
             continue;
@@ -699,7 +749,7 @@ bool Optimizer::dropExtensions() {
     bool changed = false;
     for (std::size_t i = 0; i < run_.size(); i++) {
         IrIns &x = run_[i];
-        const IrSem &s = sems_[i];
+        const IrSem &s = run_[i].sem;
         if (s.cls == IrSem::Move && x.a.kind == Op::Reg && x.b.kind == Op::Reg) {
             int wa, wb;
             int ra = regLookup(x.a.text, wa);
@@ -774,7 +824,7 @@ bool Optimizer::fuseLeas() {
 
         IrIns &x = run_[i + 1];
         if (x.dead) continue;
-        const IrSem &s = sems_[i + 1];
+        const IrSem &s = run_[i + 1].sem;
         if (s.cls == IrSem::Unknown) continue;
 
         IrOp *mo = nullptr;
@@ -796,15 +846,16 @@ bool Optimizer::fuseLeas() {
         }
 
         // The instruction as it would be, so its reads are the real ones.
-        IrIns y = x;
-        (mo == &x.a ? y.a : y.b) = fused;
-        const IrSem t = describe(y);
-        if (t.cls == IrSem::Unknown) continue;
-        if (t.use & bit(r)) continue;
-        const bool dead = (t.def & bit(r)) != 0 || (liveOut_[i + 1] & bit(r)) == 0;
-        if (!dead) continue;
-
+        const IrOp saved = *mo;
         *mo = fused;
+        const IrSem t = describe(x);
+        const bool dead = (t.def & bit(r)) != 0 || (liveOut_[i + 1] & bit(r)) == 0;
+        if (t.cls == IrSem::Unknown || (t.use & bit(r)) != 0 || !dead) {
+            *mo = saved;
+            continue;
+        }
+        x.sem = t;
+        x.semValid = true;
         l.dead = true;
         removed_++;
         changed = true;
@@ -828,10 +879,10 @@ bool Optimizer::pairStack() {
         if (!isGpr64(p.a, x)) continue;
         bool xChanged = false;
         unsigned touched = 0;
-        for (std::size_t j = i + 1; j < n; j++) {
+        for (std::size_t j = i + 1; j < n && j - i <= kScanLimit; j++) {
             IrIns &q = run_[j];
             if (q.dead) continue;
-            const IrSem &s = sems_[j];
+            const IrSem &s = run_[j].sem;
             if (s.cls == IrSem::Unknown) break;
             if (isStackOp(q, "pop")) {
                 int y;
@@ -844,12 +895,12 @@ bool Optimizer::pairStack() {
                     p.m = "mov"; p.operands = 2; p.b = q.a;
                     q.dead = true;
                     removed_++;
-                    sems_[i] = describe(p);
+                    refresh(p);
                 } else if (!xChanged) {
                     q.m = "mov"; q.operands = 2; q.b = q.a; q.a = p.a;
                     p.dead = true;
                     removed_++;
-                    sems_[j] = describe(q);
+                    refresh(q);
                 } else {
                     break;
                 }
@@ -871,7 +922,7 @@ bool Optimizer::retargetDefs() {
     bool changed = false;
     for (std::size_t i = 0; i + 1 < run_.size(); i++) {
         IrIns &x = run_[i];
-        const IrSem &s = sems_[i];
+        const IrSem &s = run_[i].sem;
         if (x.dead || (s.cls != IrSem::Move && s.cls != IrSem::Pop)) continue;
         if (!allocatable(s.dstReg)) continue;
 
@@ -884,6 +935,7 @@ bool Optimizer::retargetDefs() {
 
         IrOp &dst = s.cls == IrSem::Pop ? x.a : x.b;
         dst.text = regName(rb, s.dstWidth);
+        refresh(x);
         c.dead = true;
         removed_++;
         changed = true;
@@ -913,9 +965,10 @@ bool Optimizer::propagateCopies() {
         bool ok = true, dead = false, sourceChanged = false;
         int penalty = 0;
         for (std::size_t j = i + 1; j < n && ok; j++) {
+            if (j - i > kScanLimit) { ok = false; break; }
             const IrIns &x = run_[j];
             if (x.dead) continue;
-            const IrSem &s = sems_[j];
+            const IrSem &s = run_[j].sem;
             if (s.cls == IrSem::Unknown) { ok = false; break; }
             if (s.use & bit(rb)) {
                 if (sourceChanged || (s.fixed & bit(rb))) { ok = false; break; }
@@ -945,9 +998,9 @@ bool Optimizer::propagateCopies() {
             int w;
             for (int k = 0; k < x.operands; k++) {
                 IrOp &o = k == 0 ? x.a : x.b;
-                if (namesReg(o, rb, w) && readsAt(x, sems_[j], k)) o.text = regName(ra, w);
+                if (namesReg(o, rb, w) && readsAt(x, run_[j].sem, k)) o.text = regName(ra, w);
             }
-            sems_[j] = describe(x);
+            refresh(x);
         }
         c.dead = true;
         removed_++;
@@ -964,6 +1017,7 @@ void Optimizer::shorten() {
     for (std::size_t i = 0; i < n; i++) {
         IrIns &x = run_[i];
         if (x.dead) continue;
+        x.semValid = false;
 
         // mov $imm, %r64 with imm in [0, 2^32): movl $imm, %r32 zero-extends
         // and is two bytes shorter, five where the assembler chose movabs;
