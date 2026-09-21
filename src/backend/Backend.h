@@ -18,6 +18,10 @@ public:
     virtual void run(const Program &program) = 0;
 
     virtual void setLineSource(const Source *, const std::string &) {}
+
+    // **How hard to optimize**, 0 meaning not at all. Only a code generator
+    // with an instruction IR in front of its spelling does anything with it.
+    virtual void setOptimize(int) {}
 };
 
 enum class Segment { Code, Const, ConstRelocated, Data, Bss };

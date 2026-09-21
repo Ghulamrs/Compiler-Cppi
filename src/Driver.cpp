@@ -140,7 +140,7 @@ void Driver::standardIncludeDirectories(const std::string &argv0) {
 void Driver::usage(char *file) {
     std::fprintf(stderr,
         "usage: %s <file.cpp> [more.cpp ...] [-S|-c] [-o out] [-D n[=v]] [-U n]\n"
-        "               [-I dir] [-j n] [-arch a] [-masm=m] [-g] [-time]\n"
+        "               [-I dir] [-j n] [-arch a] [-masm=m] [-O0|-O1|-O2] [-g] [-time]\n"
         "       with neither -S nor -c the inputs are compiled, assembled and\n"
         "         linked into a program, named by -o, or a.out - a.exe on a\n"
         "         Windows host; several inputs\n"
@@ -795,6 +795,12 @@ bool Driver::parseArguments(int argc, char **argv) {
             quiet_ = true;
         } else if (std::strcmp(argv[i], "-g") == 0) {
             debug_ = true;
+        } else if (std::strcmp(argv[i], "-O0") == 0) {
+            optimize_ = 0;
+        } else if (std::strcmp(argv[i], "-O1") == 0) {
+            optimize_ = 1;
+        } else if (std::strcmp(argv[i], "-O2") == 0) {
+            optimize_ = 2;
         } else if (argv[i][0] == '-' && argv[i][1] != '\0') {
             std::fprintf(stderr, "%s: unknown option %s\n", argv[0], argv[i]);
             return false;
@@ -935,6 +941,7 @@ bool Driver::compile(const Job &job) {
     bool ok = true;
     if (job.output.empty()) {
         std::unique_ptr<CodeGen> gen = backend_->codegen(std::cout, gnuAsm_);
+        gen->setOptimize(optimize_);
         if (debug_) gen->setLineSource(&src, workingDirectory());
         gen->run(program);
     } else {
@@ -945,6 +952,7 @@ bool Driver::compile(const Job &job) {
             return false;
         }
         std::unique_ptr<CodeGen> gen = backend_->codegen(file, gnuAsm_);
+        gen->setOptimize(optimize_);
         if (debug_) gen->setLineSource(&src, workingDirectory());
         gen->run(program);
     }
