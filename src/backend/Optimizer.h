@@ -22,14 +22,6 @@ struct IrOp {
     bool same(const IrOp &o) const;
 };
 
-struct IrIns {
-    std::string m;
-    int operands = 0;
-    IrOp a, b;
-    // Set by a pass; the run is compacted before it is replayed.
-    bool dead = false;
-};
-
 // **What one instruction does to the machine**, as far as the passes need to
 // know: which registers it reads, which it writes whole, which it writes in
 // part - a part write keeps the rest, so it is a use as well - and the flags.
@@ -67,6 +59,18 @@ struct IrSem {
     // The register a Move or Pop writes whole, or -1; and its width.
     int dstReg = -1;
     int dstWidth = 0;
+};
+
+struct IrIns {
+    std::string m;
+    int operands = 0;
+    IrOp a, b;
+    // Set by a pass; the run is compacted before it is replayed.
+    bool dead = false;
+    // What the instruction does, computed once and kept while it stands:
+    // a pass that changes an instruction invalidates it, or refreshes it.
+    IrSem sem;
+    bool semValid = false;
 };
 
 // **One of these per code generator, and so per file** - the driver compiles
@@ -128,7 +132,6 @@ private:
     bool unreachable_ = false;
 
     // Per-run scratch, kept as members so the storage is reused run to run.
-    std::vector<IrSem> sems_;
     std::vector<unsigned> liveOut_;
     std::vector<unsigned char> flagsLiveOut_;
     std::vector<IrIns> kept_;
@@ -142,7 +145,7 @@ private:
     void replay();
 
     // The passes. Each works on run_ and marks what it removes dead;
-    // compact() drops those, analyse() recomputes sems_ and the liveness.
+    // compact() drops those, analyse() fills in the semantics and the liveness.
     void analyse();
     void compact();
     void peephole();
