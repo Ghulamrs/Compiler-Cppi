@@ -669,6 +669,14 @@ void Optimizer::peephole() {
         // push %x ; pop %y is mov %x, %y, and nothing at all when %y is %x: rsp
         // and the flags end as they began, and the word written below rsp is
         // one nothing reads - the frame is addressed from rbp, the stack upward.
+
+        // **At both levels, though it looks like a size-for-speed trade.** The
+        // pair is two bytes and the mov three, so it was gated to -O2 once and
+        // measured: .text came out 51,408 bytes LARGER at -O1, not smaller.
+
+        // It is an enabling transformation - once the pair is a mov, copy
+        // propagation sees through it and usually deletes it. Withholding it
+        // costs both size and speed, so it is not a knob.
         if (!kept.empty() && isStackOp(i, "pop") && isStackOp(kept.back(), "push")) {
             IrIns &p = kept.back();
             if (p.a.text == i.a.text) {
