@@ -726,6 +726,10 @@ void Optimizer::peephole() {
         // It is an enabling transformation - once the pair is a mov, copy
         // propagation sees through it and usually deletes it. Withholding it
         // costs both size and speed, so it is not a knob.
+
+        // What is: docs/O1-O2-STUDY-2026-09-21.md, where cl's -O2 proved to
+        // be exactly -O1 -Oi -Ot - unrolled loops, inline block moves and
+        // aligned loop heads - and TI's levels proved to be amounts instead.
         if (!kept.empty() && isStackOp(i, "pop") && isStackOp(kept.back(), "push")) {
             IrIns &p = kept.back();
             if (p.a.text == i.a.text) {
