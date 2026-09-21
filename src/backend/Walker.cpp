@@ -110,6 +110,7 @@ void Walker::visit(const While &n) {
     markLine(n);
     int id = nextLabel();
     jumps_.push_back({ label("end", id), label("begin", id) });
+    loopHead();
     defineLabel(label("begin", id));
     genTruth(n.cond());
     branchIfZero(label("end", id));
@@ -127,6 +128,7 @@ void Walker::visit(const For &n) {
     jumps_.push_back({ label("end", id), label("step", id) });
 
     if (n.init()) n.init()->accept(*this);
+    loopHead();
     defineLabel(label("begin", id));
     if (n.cond()) {
 
@@ -152,6 +154,7 @@ void Walker::visit(const DoWhile &n) {
     int id = nextLabel();
     jumps_.push_back({ label("end", id), label("step", id) });
 
+    loopHead();
     defineLabel(label("begin", id));
     n.body().accept(*this);
     defineLabel(label("step", id));

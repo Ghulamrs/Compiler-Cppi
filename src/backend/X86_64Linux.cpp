@@ -405,7 +405,11 @@ void X86_64Linux::visit(const MemberAccess &n) {
     load(n.type());
 }
 
+// **Where the levels part, as cl's /Os and /Ot do over a block move.** Unrolled
+// is nine bytes of code per word; `rep movsq` a fixed fifteen (twenty-two with
+// rsi and rdi saved) and slower to start, so -O1 takes it from three words up.
 void X86_64Linux::copyBlock(int size) {
+    if (level_ == 1 && size >= 24) { copyBlockCompact(size); return; }
     const char *to = abi_.scratch;
     int off = 0;
     while (size - off >= 8) {
@@ -428,6 +432,35 @@ void X86_64Linux::copyBlock(int size) {
         a_->ins("movb", reg("%cl"), mem(off, to));
         off += 1;
     }
+}
+
+// %rax the source and the scratch register the destination, both intact
+// after; the tail below eight bytes goes through %rcx from where the string
+// instruction left rsi and rdi.
+void X86_64Linux::copyBlockCompact(int size) {
+    const bool save = abi_.stringRegsCalleeSaved;
+    if (save) { a_->ins("push", reg("%rsi")); a_->ins("push", reg("%rdi")); }
+    a_->ins("mov", reg("%rax"), reg("%rsi"));
+    if (std::strcmp(abi_.scratch, "%rdi") != 0) a_->ins("mov", reg(abi_.scratch), reg("%rdi"));
+    a_->ins("movl", imm(size / 8), reg("%ecx"));
+    a_->ins("rep movsq");
+    int off = 0, left = size % 8;
+    if (left >= 4) {
+        a_->ins("movl", mem(off, "%rsi"), reg("%ecx"));
+        a_->ins("movl", reg("%ecx"), mem(off, "%rdi"));
+        off += 4; left -= 4;
+    }
+    if (left >= 2) {
+        a_->ins("movw", mem(off, "%rsi"), reg("%cx"));
+        a_->ins("movw", reg("%cx"), mem(off, "%rdi"));
+        off += 2; left -= 2;
+    }
+    if (left >= 1) {
+        a_->ins("movb", mem(off, "%rsi"), reg("%cl"));
+        a_->ins("movb", reg("%cl"), mem(off, "%rdi"));
+    }
+    if (save) { a_->ins("pop", reg("%rdi")); a_->ins("pop", reg("%rsi")); }
+    else a_->ins("sub", imm(size - size % 8), reg("%rdi"));
 }
 
 void X86_64Linux::bitFieldUnitAddr(const MemberAccess &m) {

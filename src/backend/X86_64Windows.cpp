@@ -42,6 +42,7 @@ static Abi microsoft() {
     a.shadowBytes = 32;
     a.structReturnLimit = 8;
     a.aggregatesByReference = true;
+    a.stringRegsCalleeSaved = true;
     a.scratch = "%r10";                 a.scratch32 = "%r10d";
     return a;
 }

@@ -98,6 +98,8 @@ public:
     virtual void ins(const std::string &m, const Op &a, const Op &b) = 0;
 
     virtual void defLabel(const std::string &l) = 0;
+    // A loop head follows: pad to 16 bytes, as cl's npad does - asked only at -O2.
+    virtual void loopAlign() {}
 
     virtual void functionBegin(const std::string &name, bool exported,
                                bool mergeable = false) = 0;
@@ -164,6 +166,7 @@ public:
     void globl(const std::string &name) override;
     void weakDefinition(const std::string &name) override;
     void textSection() override;
+    void loopAlign() override;
     void rodataSection() override;
     void dataSection() override;
     void bssSection() override;

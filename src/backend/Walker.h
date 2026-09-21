@@ -57,6 +57,9 @@ protected:
     virtual void emitLoc(int file, int line, int column) { (void)file; (void)line; (void)column; }
 
     virtual void defineLabel(const std::string &l) = 0;
+    // Called before the label a loop jumps back to; a backend that aligns
+    // loop heads at a level does it here.
+    virtual void loopHead() {}
     virtual void jump(const std::string &l) = 0;
     virtual void branchIfZero(const std::string &l) = 0;
     virtual void branchIfNotZero(const std::string &l) = 0;

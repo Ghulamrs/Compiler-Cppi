@@ -243,6 +243,7 @@ constexpr Mnemonic kMnemonics[] = {
     MN("cqo", IrSem::Cqo, 0),   MN("cqto", IrSem::Cqo, 0),
     MN("cdq", IrSem::Cdq, 0),   MN("cltd", IrSem::Cdq, 0),
     MN("cltq", IrSem::Cltq, 0), MN("cdqe", IrSem::Cltq, 0),
+    MN("rep movsq", IrSem::Rep, 0),
 
     // The flags after a division are undefined, so no reader may depend on
     // what was there before it: it counts as a writer.
@@ -459,6 +460,13 @@ IrSem describe(const IrIns &i) {
         break;
     case IrSem::Nop:
         break;
+    case IrSem::Rep: {
+        if (i.operands != 0) { d.bad = true; break; }
+        const unsigned r = bit(kRsi) | bit(kRdi) | bit(kRcx);
+        s.use |= r; s.part |= r; s.fixed |= r;
+        s.memWrite = true;
+        break;
+    }
     case IrSem::Unknown:
         d.bad = true;
         break;
@@ -1116,6 +1124,7 @@ void Optimizer::bssSection() { interrupt(); under_->bssSection(); }
 void Optimizer::objectType(const std::string &name) { interrupt(); under_->objectType(name); }
 void Optimizer::objectSize(const std::string &name, int size) { interrupt(); under_->objectSize(name, size); }
 void Optimizer::align(int n) { interrupt(); under_->align(n); }
+void Optimizer::loopAlign() { interrupt(); under_->loopAlign(); }
 void Optimizer::zero(int n) { interrupt(); under_->zero(n); }
 void Optimizer::dataInt(int size, long long v) { interrupt(); under_->dataInt(size, v); }
 void Optimizer::dataSym(const std::string &sym, long long off) { interrupt(); under_->dataSym(sym, off); }

@@ -45,6 +45,7 @@ struct IrSem {
         Div,      // rax:rdx in and out, a read
         X87,      // only memory and the x87 stack
         Call, Jump, Ret, Leave, Nop,
+        Rep,      // rep movsq: rsi, rdi and rcx read, advanced, and fixed
     };
     Class cls = Unknown;
     unsigned use = 0;        // read, at any width, base registers included
@@ -107,6 +108,7 @@ public:
     void globl(const std::string &name) override;
     void weakDefinition(const std::string &name) override;
     void textSection() override;
+    void loopAlign() override;
     void rodataSection() override;
     void dataSection() override;
     void bssSection() override;

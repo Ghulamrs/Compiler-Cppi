@@ -58,6 +58,7 @@ public:
 
     void globl(const std::string &name) override;
     void textSection() override;
+    void loopAlign() override;
     void rodataSection() override;
     void dataSection() override;
     void bssSection() override;

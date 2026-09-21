@@ -41,6 +41,7 @@ void GnuSpelling::ins(const std::string &m, const Op &a, const Op &b) {
 }
 
 void GnuSpelling::defLabel(const std::string &l) { o_ += sym(l); o_ += ":\n"; }
+void GnuSpelling::loopAlign() { o_ += "  .p2align 4\n"; }
 
 // The flag is for COFF, where a mergeable definition needs its section opened
 // before the label. ELF and Mach-O say it afterwards, with `.weak`, exactly as

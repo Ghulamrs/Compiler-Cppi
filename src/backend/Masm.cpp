@@ -118,6 +118,7 @@ const Rule kRules[] = {
     { "test", "test", 0 }, { "testq", "test", 8 }, { "testl", "test", 4 },
     { "testw", "test", 2 }, { "leave", "leave", 0 },
 
+    { "rep movsq", "rep movsq", 0 },
     { "call", "call", 0 }, { "ret", "ret", 0 },
     { "jmp", "jmp", 0 }, { "je", "je", 0 }, { "jne", "jne", 0 },
     { "jae", "jae", 0 }, { "jns", "jns", 0 },
@@ -281,6 +282,11 @@ void MasmSpelling::functionBegin(const std::string &name, bool exported,
     fnName_ = name;
     o_ += mangle(name); o_ += " PROC\n";
     o_ += "$LNbeg$"; o_ += mangle(name); o_ += ":\n";
+}
+
+void MasmSpelling::loopAlign() {
+    flushPending();
+    o_ += "  ALIGN 16\n";
 }
 
 void MasmSpelling::raw(const std::string &text) {

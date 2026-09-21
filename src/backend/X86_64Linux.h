@@ -46,10 +46,12 @@ public:
     // **The IR goes in front of whichever spelling the target chose**, and only
     // when asked: at -O0 the walker speaks to the spelling directly, as before.
     void setOptimize(int level) override {
+        level_ = level;
         if (level < 1) return;
         opt_.wrap(a_, level);
         a_ = &opt_;
     }
+    void loopHead() override { if (level_ >= 2) a_->loopAlign(); }
 
     using Walker::visit;
     void run(const Program &program) override;
@@ -116,6 +118,8 @@ protected:
     Spelling *a_ = &gnu_;
     // The optional IR in front of a_ - see setOptimize; flushed before out_ is read or cut.
     Optimizer opt_;
+    // -O0, -O1 or -O2, for the choices the walker makes itself.
+    int level_ = 0;
 
     void landingPad(int pointerSlot, int selectorSlot) override;
 
@@ -212,6 +216,7 @@ private:
     void bitFieldInsert(const MemberAccess &m);
 
     void copyBlock(int size);
+    void copyBlockCompact(int size);
 
     void canonicalise(const Type *t);
     void genFloatBinary(const Binary &n);
