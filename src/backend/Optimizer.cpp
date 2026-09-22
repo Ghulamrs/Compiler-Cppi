@@ -680,6 +680,22 @@ void Optimizer::semantics(IrIns &x) const {
         x.sem.use &= ~bit(kRdx);
         x.sem.fixed &= ~bit(kRdx);
     }
+    /*  **A call reads the accumulator only where the ABI says so.** Described
+     *  as reading every register, a call makes rax live at every point before
+     *  it, and retargetDefs - which folds `mov rax,X ; mov r8,rax` into
+     *  `mov r8,X` when rax is not live out - could never fire in front of one.
+     *
+     *  It fired anyway, by accident, for as long as the walker emitted a dead
+     *  `mov $0,%rax` before every call: that redefinition ended rax's live
+     *  range. Deleting the instruction was right and cost 4,336 bytes of .text
+     *  in a build of Compiler++, because 851 folds per unit went with it. The
+     *  Microsoft ABI passes nothing in rax, so on that target the liveness was
+     *  wrong, not the fold. System V stays as it was: its variadic call really
+     *  does read AL, and that is the one call still setting it. */
+    if (x.sem.cls == IrSem::Call && !callReadsAccumulator_) {
+        x.sem.use &= ~bit(kRax);
+        x.sem.fixed &= ~bit(kRax);
+    }
 }
 
 void Optimizer::flow() {

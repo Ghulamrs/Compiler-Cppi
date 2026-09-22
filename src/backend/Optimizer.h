@@ -98,7 +98,15 @@ public:
     Optimizer() = default;
 
     // Interpose in front of `under`; every call is forwarded there.
-    void wrap(Spelling *under, int level) { under_ = under; level_ = level; }
+    /*  `callReads` says whether a call on this ABI may read the accumulator.
+     *  System V does, at a variadic call, where AL carries the vector count;
+     *  the Microsoft ABI passes nothing in rax and never does. Told `false`,
+     *  the optimizer can see that a value moved out of rax before a call is
+     *  dead at it - which is what lets retargetDefs fold
+     *  `mov rax,X ; mov r8,rax` into `mov r8,X`. */
+    void wrap(Spelling *under, int level, bool callReads = true) {
+        under_ = under; level_ = level; callReadsAccumulator_ = callReads;
+    }
     bool active() const { return under_ != nullptr; }
 
     // Write out what is buffered - called before the output text is read or cut.
@@ -160,6 +168,7 @@ private:
     // What is live, and whether the flags are, after the run being optimized.
     unsigned initLive_ = 0;
     bool initFlags_ = false;
+    bool callReadsAccumulator_ = true;
     bool rdxLive_ = true;
     std::vector<std::pair<long long, int> > scalars_;
     // The prologue, held until the body is known so the saves can be named.
