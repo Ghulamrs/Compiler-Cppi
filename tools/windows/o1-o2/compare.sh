@@ -56,7 +56,7 @@ cl -nologo -O2 -Fe:cl-O2.exe "$LP" > cl-O2.build 2>&1 || echo "  cl /O2 did not 
 for x in cx-O1 cx-O2 cl-O1 cl-O2; do
     [ -x "$x.exe" ] || continue
     for i in 1 2 3; do ./$x.exe | tr -d '\r' > "$x.run$i"; done
-    for k in sum fill while dot; do
+    for k in sum fill while dot many; do
         best=$(grep "^$k " $x.run1 $x.run2 $x.run3 | awk '{print $2}' | sort -n | head -1)
         printf '  %-6s %-6s %6s ms  %s\n' "$x" "$k" "$best" "$(grep "^$k " $x.run1 | sed 's/.*checksum/checksum/')" | tee -a "$R/log.txt"
     done

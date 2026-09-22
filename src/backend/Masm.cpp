@@ -289,16 +289,38 @@ void MasmSpelling::loopAlign() {
     o_ += "  ALIGN 16\n";
 }
 
+// The callee-saved registers a body may keep locals in, in the order the
+// prologue saves them; and as the unwinder numbers them, rbx being 3.
+static const char *const kSavedNames[] = { "rbx", "r12", "r13", "r14", "r15" };
+static const int kSavedIndex[] = { 1, 12, 13, 14, 15 };
+static const int kUnwindReg[] = { 3, 12, 13, 14, 15 };
+
+void MasmSpelling::restoreSaved() {
+    flushPending();
+    int n = 0;
+    for (int k = 0; k < 5; k++) {
+        if (!(saved_ & (1u << kSavedIndex[k]))) continue;
+        o_ += "  mov " + std::string(kSavedNames[k]) + ", QWORD PTR [rbp+" + std::to_string(8 * n) + "]\n";
+        n++;
+    }
+}
+
 void MasmSpelling::raw(const std::string &text) {
     flushPending();
     o_ += text;
 }
 
-void MasmSpelling::prologue(int frameSize, const std::string &lsda) {
+void MasmSpelling::prologue(int frameSize, const std::string &lsda, unsigned saved) {
     // **The LSDA name says a landing pad exists, which is not the same
     // question.** A Microsoft FuncInfo follows only where one is written, and
     // the code generator says so through `noteHasEh` before `functionEnd`.
     (void)lsda;
+    saved_ = saved;
+    // The saves sit at the bottom of the frame, which grows to hold them; rbp
+    // is taken after the allocation, so the renderer's constant grows alike.
+    int n = 0;
+    for (int k = 0; k < 5; k++) if (saved & (1u << kSavedIndex[k])) n++;
+    frameSize += 8 * n + (n % 2 == 1 ? 8 : 0);
     frameSize_ = frameSize;
     const std::string m = mangle(fnName_);
 
@@ -318,11 +340,27 @@ void MasmSpelling::prologue(int frameSize, const std::string &lsda) {
         o_ += "  sub rsp, "; appendNum(o_, frameSize); o_ += '\n';
     }
     o_ += "$LNalloc$" + m + ":\n";
+    // The saves before the frame pointer is taken: their unwind codes are
+    // offsets from rsp, which is what the unwinder holds until SET_FPREG.
+    std::string saves;
+    n = 0;
+    for (int k = 0; k < 5; k++) {
+        if (!(saved & (1u << kSavedIndex[k]))) continue;
+        o_ += "  mov QWORD PTR [rsp+" + std::to_string(8 * n) + "], " + kSavedNames[k] + "\n";
+        o_ += "$LNsave" + std::to_string(n) + "$" + m + ":\n";
+        // UWOP_SAVE_NONVOL is 4 with the register in the high nibble, then
+        // the slot's offset from rsp in eights.
+        char code[8];
+        std::snprintf(code, sizeof code, "0%02XH", (kUnwindReg[k] << 4) | 4);
+        saves = "  DB $LNsave" + std::to_string(n) + "$" + m + "-$LNbeg$" + m + "\n  DB " + code +
+                "\n  DW " + std::to_string(n) + "\n" + saves;
+        n++;
+    }
     o_ += "  mov rbp, rsp\n";
     o_ += "$LNprolog$" + m + ":\n";
 
     // Last instruction first, which is the order an unwinder undoes them in.
-    // That is now SET_FPREG, then the allocation, then the push.
+    // That is now SET_FPREG, then the saves, the allocation, then the push.
     unwindCodes_ = 0;
     unwindData_.clear();
     // UWOP_SET_FPREG is 3; the frame offset lives in the header, and it is
@@ -330,6 +368,8 @@ void MasmSpelling::prologue(int frameSize, const std::string &lsda) {
     unwindData_ += "  DB $LNprolog$" + m + "-$LNbeg$" + m + "\n";
     unwindData_ += "  DB 03H\n";
     unwindCodes_ += 1;
+    unwindData_ += saves;
+    unwindCodes_ += 2 * n;
     // UWOP_ALLOC_SMALL is 2, with (size/8 - 1) in the high nibble, and
     // reaches 128 bytes; past that UWOP_ALLOC_LARGE is 1 with a slot of its
     // own holding size/8.
