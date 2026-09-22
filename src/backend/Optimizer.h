@@ -210,6 +210,8 @@ private:
     void compact();
     void peephole();
     bool dropExtensions();
+    bool foldAddIntoAddress();
+    bool fuseAddToLea();
     bool fuseLeas();
     bool sinkFrameLeas();
     bool pairStack();
