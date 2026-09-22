@@ -32,10 +32,13 @@ public:
     void closeDataBlock();
     // The clause a funclet's or a table's segment takes when the function is mergeable.
     std::string associative() { return mergeable_ ? " ASSOCIATIVE(" + mangledName() + ")" : std::string(); }
-    void prologue(int frameSize, const std::string &lsda, unsigned saved) override;
+    void prologue(int frameSize, const std::string &lsda, unsigned saved,
+                  int outgoing) override;
     void restoreSaved() override;
-    // What the prologue saved for the body's locals.
+    // What the prologue saved for the body's locals, and the outgoing area
+    // they sit on top of - restoreSaved reads them from where the prologue put them.
     unsigned saved_ = 0;
+    int outgoing_ = 0;
     // **Whether a FuncInfo follows is the code generator's answer, not this one's.**
     void noteHasEh(bool yes) override { hasEh_ = yes; }
     // The unwind codes the prologue described, written out by functionEnd -

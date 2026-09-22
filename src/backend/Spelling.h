@@ -96,6 +96,12 @@ public:
     virtual void ins(const std::string &m) = 0;
     virtual void ins(const std::string &m, const Op &a) = 0;
     virtual void ins(const std::string &m, const Op &a, const Op &b) = 0;
+    // Whether the last instruction was a call: a Microsoft try region must not
+    // end on one, since the runtime reads its state at the return address.
+    bool lastWasCall() const { return lastWasCall_; }
+protected:
+    bool lastWasCall_ = false;
+public:
 
     virtual void defLabel(const std::string &l) = 0;
     // A loop head follows: pad to 16 bytes, as cl's npad does - asked only at -O2.
@@ -109,7 +115,12 @@ public:
 
 // `saved` is the callee-saved registers the body keeps locals in, as bits of
 // their Optimizer index (rbx 1, r12..r15 12..15); restoreSaved() undoes them.
-    virtual void prologue(int frameSize, const std::string &lsda, unsigned saved) = 0;
+
+// **`outgoing` is the area the body's calls write their arguments into**: bytes,
+// a multiple of 16, at the very bottom of the frame below the saves, so a call
+// made with nothing pushed finds its shadow space and stack arguments at rsp.
+    virtual void prologue(int frameSize, const std::string &lsda, unsigned saved,
+                          int outgoing) = 0;
     virtual void restoreSaved() = 0;
     virtual void functionEnd(const std::string &name) = 0;
 
@@ -165,7 +176,8 @@ public:
     void location(int file, int line, int column) override;
     void functionBegin(const std::string &name, bool exported,
                        bool mergeable = false) override;
-    void prologue(int frameSize, const std::string &lsda, unsigned saved) override;
+    void prologue(int frameSize, const std::string &lsda, unsigned saved,
+                  int outgoing) override;
     void restoreSaved() override;
     void functionEnd(const std::string &name) override;
     void globl(const std::string &name) override;
@@ -210,7 +222,8 @@ public:
     void align(int n) override;
     void objectType(const std::string &name) override;
     void objectSize(const std::string &name, int size) override;
-    void prologue(int frameSize, const std::string &lsda, unsigned saved) override;
+    void prologue(int frameSize, const std::string &lsda, unsigned saved,
+                  int outgoing) override;
     void restoreSaved() override;
     void functionEnd(const std::string &name) override;
     void noteHasEh(bool yes) override { hasEh_ = yes; }
@@ -230,6 +243,7 @@ private:
     std::string fnName_;
     bool hasEh_ = false;
     int frameSize_ = 0;
+    int outgoing_ = 0;   // under the saves, so restoreSaved reads that much higher
     // Whether this definition went into a COMDAT, which decides where its unwind data goes.
     bool mergeable_ = false;
     // **A data COMDAT is one object's section, and the next object must not

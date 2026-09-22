@@ -128,7 +128,8 @@ public:
     void defLabel(const std::string &l) override;
     void functionBegin(const std::string &name, bool exported,
                        bool mergeable = false) override;
-    void prologue(int frameSize, const std::string &lsda, unsigned saved) override;
+    void prologue(int frameSize, const std::string &lsda, unsigned saved,
+                  int outgoing) override;
     void restoreSaved() override;
     void functionEnd(const std::string &name) override;
     void fileEntry(int n, const std::string &name) override;
@@ -174,6 +175,7 @@ private:
     // The prologue, held until the body is known so the saves can be named.
     bool prologueHeld_ = false;
     int heldFrame_ = 0;
+    int heldOutgoing_ = 0;
     std::string heldLsda_;
     // Set by functionEnd: the flush that follows sees the whole body.
     bool ending_ = false;

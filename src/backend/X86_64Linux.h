@@ -80,6 +80,7 @@ protected:
     bool usesFunclets() const override { return target_.microsoftNames(); }
     bool terminateScopes() const override { return !target_.microsoftNames(); }
     std::string terminatePad(int id) override;
+    void regionEnd() override;
     std::string beginFunclet() override;
     void endCleanupFunclet() override;
     void endFunclet(const std::string &resume) override;
@@ -104,6 +105,8 @@ protected:
     std::size_t funcletMark_ = 0;
     int funcletIndex_ = 0;
     std::string funcletSymbol_;
+    // Nonzero inside a funclet, whose own frame offers 32 bytes and no more.
+    int funcletDepth_ = 0;
     const char *funcletKind_ = "$catch$";
     // The function being emitted, which the tables and funclets name.
     std::string fnSymbol_;
@@ -171,6 +174,10 @@ private:
 
     const Abi &abi_;
     int depth_ = 0;
+    int outgoing_ = 0;   // the widest call's, sized before the body - Spelling::prologue
+    // Nonzero from a call's first write into the area until its `call`, so a
+    // call nested in a later argument takes the pushing road below it.
+    int areaBusy_ = 0;
     std::string returnLabel_;
     void emitLoc(int file, int line, int column) override { a_->location(file, line, column); }
     void defineLabel(const std::string &l) override;
@@ -240,6 +247,11 @@ private:
     void msCopyToSlot(const Type *t, int slot, const char *from);
     int takeSlot(bool sse, int &ints, int &sses) const;
 
+    // Whether a call's result travels through a hidden pointer, asked in one place.
+    bool returnsViaPointer(const Call &n) const;
+    // The bytes a call wants at rsp: the shadow space and its stack arguments.
+    int outgoingBytes(const Call &n) const;
+
     // **Where one argument goes, decided once for both ends of the call.**
     struct ArgPlace {
         std::vector<bool> lanes;   // empty when the argument travels in memory
@@ -249,6 +261,8 @@ private:
         int stackOffset = 0;       // bytes from the base the callee supplies
         int stackWords = 0;        // and how many 8-byte words it occupies
     };
+    // The value just computed (or an aggregate's address in rax) written to its place in the area.
+    void storeOutgoing(const Type *t, const ArgPlace &p, int argSlot);
 
     // The whole list, in order. `sret` says a hidden return pointer is passed,
     // `hasThis` that the first argument is an object - between them they
