@@ -1496,6 +1496,10 @@ void X86_64Linux::emit(const Function &fn) {
     if (sretSlot_ != 0)
         a_->ins("mov", reg(abi_.intRegs[msThisFirst ? 1 : 0]), local(sretSlot_));
 
+    // A struct of two eightbytes comes back in rax:rdx; nothing else reads rdx at the ret.
+    opt_.returnUsesRdx(sretSlot_ == 0 && fn.returns()->isStructOrUnion() &&
+                       fn.returns()->size(target_) > 8);
+
     regSave_ = fn.regSaveSlot();
     if (fn.isVariadic() && abi_.positional) {
         for (int i = 0; i < abi_.intCount; i++)

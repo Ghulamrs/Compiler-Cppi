@@ -449,8 +449,11 @@ IrSem describe(const IrIns &i) {
         s.memWrite = true;
         break;
     case IrSem::Jump:
+        // Only what it jumps through: what is live after it is the successors'
+        // to say, through the graph. `use = kAll` here, from the per-run days,
+        // made every chunk that ends in a jump read everything.
         if (i.operands == 1) d.read(i.a, false);
-        s.use = kAll; s.fixed = kAll;
+        s.fixed |= s.use;
         break;
     case IrSem::Ret:
         s.use = kRetLive; s.fixed = kRetLive;
@@ -670,12 +673,20 @@ void Optimizer::connect() {
 // union over its successors - everything where one is unseen, nothing after a return.
 
 // Backward to a fixpoint; the flags the same way.
+void Optimizer::semantics(IrIns &x) const {
+    refresh(x);
+    if (x.sem.cls == IrSem::Ret && !rdxLive_) {
+        x.sem.use &= ~bit(kRdx);
+        x.sem.fixed &= ~bit(kRdx);
+    }
+}
+
 void Optimizer::flow() {
     for (IrChunk &c : chunks_) {
         unsigned live = 0, kill = 0;
         bool flags = false, fkill = false;
         for (std::size_t k = c.ins.size(); k-- > 0;) {
-            if (!c.ins[k].semValid) refresh(c.ins[k]);
+            if (!c.ins[k].semValid) semantics(c.ins[k]);
             const IrSem &s = c.ins[k].sem;
             live = s.use | (live & ~s.def);
             kill |= s.def;
@@ -702,6 +713,73 @@ void Optimizer::flow() {
         }
         if (!changed) break;
     }
+}
+
+// **-O2 unrolls a leaf loop by two**, as cl's /Ot does: the walker's `begin`
+// chunk (the condition, ending in the branch out), a body with no label, call
+// or jump, the `step` chunk if any, and the `jmp begin` - copied once after the latch.
+
+// Labels are left out of the copy, so each pass round the back edge does two
+// iterations and one jump; the copy keeps the exit branch, so the trip count
+// need not be known. A body with a label would need its exception ranges rebuilt.
+
+// Verified on the box (297/297, 67/67) and measured at no gain - see the study,
+// section 6 - so flush() does not call it yet; it waits for locals in registers.
+bool Optimizer::unroll() {
+    const std::size_t kMost = 64;
+    bool any = false;
+    for (std::size_t h = 0; h < chunks_.size(); h++) {
+        const IrChunk &head = chunks_[h];
+        if (!head.hasLabel || head.ins.empty()) continue;
+        const std::string::size_type at = head.label.find(".begin.");
+        if (at == std::string::npos) continue;
+        const std::string step = head.label.substr(0, at) + ".step." + head.label.substr(at + 7);
+        const IrIns &exit = head.ins.back();
+        if (exit.m.empty() || exit.m[0] != 'j' || exit.m == "jmp" ||
+            exit.operands != 1 || exit.a.kind != Op::Lbl) continue;
+
+        // The latch, and everything between must be plain.
+        std::size_t t = h + 1, size = head.ins.size();
+        bool ok = true;
+        for (; t < chunks_.size(); t++) {
+            const IrChunk &c = chunks_[t];
+            if (c.hasLabel && c.label != step) { ok = false; break; }
+            size += c.ins.size();
+            if (size > kMost) { ok = false; break; }
+            bool last = false;
+            for (std::size_t k = 0; k < c.ins.size(); k++) {
+                const IrIns &i = c.ins[k];
+                if (!i.semValid) refresh(const_cast<IrIns &>(i));
+                const IrSem::Class cls = i.sem.cls;
+                if (cls == IrSem::Unknown || cls == IrSem::Call || cls == IrSem::Ret) { ok = false; break; }
+                if (cls == IrSem::Jump) {
+                    if (k + 1 != c.ins.size() || i.m != "jmp" || i.operands != 1 ||
+                        i.a.kind != Op::Lbl || i.a.text != head.label) { ok = false; break; }
+                    last = true;
+                }
+            }
+            if (!ok || last) break;
+        }
+        if (!ok || t >= chunks_.size()) continue;
+        for (std::size_t k = h + 1; k < t && ok; k++)
+            for (std::size_t j = 0; j < chunks_[k].ins.size(); j++)
+                if (chunks_[k].ins[j].sem.cls == IrSem::Jump) ok = false;
+        if (!ok) continue;
+
+        // The copies: the head without its label, the rest without theirs,
+        // the latch's jump moved from the original to the copy.
+        std::vector<IrChunk> copies;
+        for (std::size_t k = h; k <= t; k++) {
+            IrChunk c;
+            c.ins = chunks_[k].ins;
+            copies.push_back(c);
+        }
+        chunks_[t].ins.pop_back();
+        chunks_.insert(chunks_.begin() + static_cast<long>(t) + 1, copies.begin(), copies.end());
+        h = t + copies.size();
+        any = true;
+    }
+    return any;
 }
 
 void Optimizer::replay() {
@@ -737,6 +815,9 @@ void Optimizer::flush() {
                 optimize();
                 run_.swap(c.ins);
             }
+            // unroll() would go here, after the first round and before the
+            // second; docs/O1-O2-STUDY-2026-09-21.md section 6 measured it at
+            // nothing while every local is a load and a store, so it waits.
         }
     }
     replay();
@@ -758,6 +839,8 @@ void Optimizer::optimize() {
         if (pairStack())      { changed = true; compact(); analyse(); }
         if (retargetDefs())   { changed = true; compact(); analyse(); }
         if (renameThroughPair()) { changed = true; compact(); analyse(); }
+        if (moveSourceReads())   { changed = true; compact(); analyse(); }
+        if (dropDeadDefs())      { changed = true; compact(); analyse(); }
         if (propagateCopies()){ changed = true; compact(); }
         if (!changed) break;
     }
@@ -781,7 +864,7 @@ void Optimizer::analyse() {
     liveOut_.resize(n);
     flagsLiveOut_.resize(n);
     for (std::size_t i = 0; i < n; i++)
-        if (!run_[i].semValid) refresh(run_[i]);
+        if (!run_[i].semValid) semantics(run_[i]);
 
     unsigned live = initLive_;
     bool flags = initFlags_;
@@ -1149,6 +1232,85 @@ bool Optimizer::renameThroughPair() {
     return changed;
 }
 
+
+// **A register written and never read.** A move or lea into a general register
+// that nothing reads before it is written again, with no store and no flags
+// anyone wants, does nothing: the walker's post-increment keeps its old value so.
+bool Optimizer::dropDeadDefs() {
+    bool changed = false;
+    for (std::size_t i = 0; i < run_.size(); i++) {
+        IrIns &x = run_[i];
+        const IrSem &s = x.sem;
+        if (x.dead || s.cls != IrSem::Move || s.memWrite) continue;
+        if (!allocatable(s.dstReg) || x.b.kind != Op::Reg) continue;
+        if (s.flagsDef && flagsLiveOut_[i]) continue;
+        if (liveOut_[i] & bit(s.dstReg)) continue;
+        x.dead = true;
+        removed_++;
+        changed = true;
+    }
+    return changed;
+}
+
+// **A copy whose source is read on, until the source is written again.** After
+// `mov a, b` the two hold one value, so those reads may name b instead - all
+// of them, so that a is dead at the copy and retargetDefs can write b at once.
+
+// Neither may be written between, a's own redefinition ending the range; and
+// a read that only b's spelling could not take - a high byte, an implicit
+// operand - stops it, as does a range that leaves the run with a still live.
+bool Optimizer::moveSourceReads() {
+    bool changed = false;
+    const std::size_t n = run_.size();
+    std::vector<std::size_t> reads;
+    for (std::size_t i = 0; i + 1 < n; i++) {
+        IrIns &c = run_[i];
+        if (c.dead || !isMov64(c)) continue;
+        int a, b;
+        if (!isGpr64(c.a, a) || !isGpr64(c.b, b) || a == b) continue;
+        if (!allocatable(a) || !allocatable(b)) continue;
+        if (!(liveOut_[i] & bit(a))) continue;      // nothing to move
+
+        reads.clear();
+        bool ok = true, closed = false;
+        for (std::size_t j = i + 1; j < n && ok; j++) {
+            if (j - i > kScanLimit) { ok = false; break; }
+            const IrIns &x = run_[j];
+            if (x.dead) continue;
+            const IrSem &s = x.sem;
+            if (s.cls == IrSem::Unknown || s.cls == IrSem::Call) { ok = false; break; }
+            if ((s.def | s.part) & bit(b)) { ok = false; break; }
+            if (s.use & bit(b)) { ok = false; break; }
+            if (s.use & bit(a)) {
+                if ((s.fixed & bit(a)) || (s.part & bit(a))) { ok = false; break; }
+                int w;
+                for (int k = 0; k < x.operands && ok; k++) {
+                    const IrOp &o = k == 0 ? x.a : x.b;
+                    if (!namesReg(o, a, w)) continue;
+                    if (w == 0 || w == 16) ok = false;
+                    if (o.kind != Op::Reg && w != 8) ok = false;
+                }
+                if (!ok) break;
+                reads.push_back(j);
+            }
+            if (s.def & bit(a)) { closed = true; break; }
+        }
+        if (!ok || reads.empty()) continue;
+        if (!closed && (liveOut_[n - 1] & bit(a))) continue;
+
+        for (std::size_t j : reads) {
+            IrIns &x = run_[j];
+            int w;
+            for (int k = 0; k < x.operands; k++) {
+                IrOp &o = k == 0 ? x.a : x.b;
+                if (namesReg(o, a, w) && readsAt(x, x.sem, k)) o.text = regName(b, w);
+            }
+            refresh(x);
+        }
+        changed = true;
+    }
+    return changed;
+}
 
 // **A copy whose destination dies before the run ends, or is overwritten in
 // it**: every read of the destination between reads the source instead,
