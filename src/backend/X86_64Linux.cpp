@@ -1486,7 +1486,7 @@ void X86_64Linux::emit(const Function &fn) {
     markLine(fn.pos());
     a_->prologue(fn.frameSize(),
                  fn.hasLandingPads() ? ".Lexception." + fn.symbol()
-                                     : std::string());
+                                     : std::string(), 0);
 
     // The definition side of the same rule: for a member function on the
     // Microsoft ABI the hidden return pointer arrives in the *second* integer

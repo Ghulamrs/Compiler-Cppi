@@ -782,6 +782,13 @@ bool Optimizer::unroll() {
     return any;
 }
 
+// **Locals into callee-saved registers - not written yet.** The plan is in
+// docs/O1-O2-STUDY-2026-09-21.md section 6: a scalar whose every access is a
+// plain operand of its width, address never taken, takes rbx or r12-r15.
+unsigned Optimizer::promote() { return 0; }
+void Optimizer::placeRestore() {}
+bool Optimizer::sinkFrameLeas() { return false; }
+
 void Optimizer::replay() {
     for (IrChunk &c : chunks_) {
         for (std::function<void()> &f : c.before) f();
@@ -803,6 +810,7 @@ void Optimizer::replay() {
 // stay inside the function: what is held is optimized - twice, since a chunk
 // that reads less leaves less live for the ones before it - and written out.
 void Optimizer::flush() {
+    unsigned saved = 0;
     if (level_ >= 1 && !chunks_.empty()) {
         connect();
         for (int round = 0; round < 2; round++) {
@@ -815,10 +823,21 @@ void Optimizer::flush() {
                 optimize();
                 run_.swap(c.ins);
             }
+            // After the first round, with the walker's leas sunk: the locals
+            // into registers. Only with the whole body in hand, and never in
+            // a function with handlers - a Windows catch funclet reads the
+            // parent's slots through the establisher, and would read a stale one.
+            if (round == 0 && prologueHeld_ && ending_ && heldLsda_.empty() && !scalars_.empty())
+                saved = promote();
             // unroll() would go here, after the first round and before the
             // second; docs/O1-O2-STUDY-2026-09-21.md section 6 measured it at
             // nothing while every local is a load and a store, so it waits.
         }
+        if (saved != 0) placeRestore();
+    }
+    if (prologueHeld_) {
+        under_->prologue(heldFrame_, heldLsda_, saved);
+        prologueHeld_ = false;
     }
     replay();
     unreachable_ = false;
@@ -1472,10 +1491,24 @@ void Optimizer::shorten() {
 void Optimizer::functionBegin(const std::string &name, bool exported, bool mergeable) {
     interrupt(); under_->functionBegin(name, exported, mergeable);
 }
-void Optimizer::prologue(int frameSize, const std::string &lsda) {
-    interrupt(); under_->prologue(frameSize, lsda);
+// The prologue waits for the body: which registers it must save is known only
+// once promote() has seen every local. The flush that ends the function
+// writes it, or an earlier one - a cut - with nothing saved.
+void Optimizer::prologue(int frameSize, const std::string &lsda, unsigned saved) {
+    interrupt();
+    if (level_ < 1) { under_->prologue(frameSize, lsda, saved); return; }
+    prologueHeld_ = true;
+    heldFrame_ = frameSize;
+    heldLsda_ = lsda;
 }
-void Optimizer::functionEnd(const std::string &name) { interrupt(); under_->functionEnd(name); }
+void Optimizer::restoreSaved() { interrupt(); under_->restoreSaved(); }
+void Optimizer::functionEnd(const std::string &name) {
+    ending_ = true;
+    interrupt();
+    ending_ = false;
+    scalars_.clear();
+    under_->functionEnd(name);
+}
 void Optimizer::fileEntry(int n, const std::string &name) { interrupt(); under_->fileEntry(n, name); }
 void Optimizer::location(int file, int line, int column) {
     event([this, file, line, column]() { under_->location(file, line, column); });

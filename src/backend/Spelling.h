@@ -106,7 +106,10 @@ public:
 // `lsda` names this function's exception table, or is empty where it has no
 // landing pad. The personality routine must be named between .cfi_startproc
 // and the first instruction, and this is the only place that sees both.
-    virtual void prologue(int frameSize, const std::string &lsda) = 0;
+    // `saved`: the callee-saved registers the body keeps locals in, as bits of
+    // their Optimizer index (rbx 1, r12..r15 12..15); restoreSaved() brings them back.
+    virtual void prologue(int frameSize, const std::string &lsda, unsigned saved) = 0;
+    virtual void restoreSaved() = 0;
     virtual void functionEnd(const std::string &name) = 0;
 
     virtual void fileEntry(int, const std::string &) {}
@@ -161,7 +164,8 @@ public:
     void location(int file, int line, int column) override;
     void functionBegin(const std::string &name, bool exported,
                        bool mergeable = false) override;
-    void prologue(int frameSize, const std::string &lsda) override;
+    void prologue(int frameSize, const std::string &lsda, unsigned saved) override;
+    void restoreSaved() override;
     void functionEnd(const std::string &name) override;
     void globl(const std::string &name) override;
     void weakDefinition(const std::string &name) override;
@@ -186,6 +190,9 @@ protected:
 
 protected:
     std::string &o_;
+    // What the prologue saved for the body's locals, and the frame they sit under.
+    unsigned saved_ = 0;
+    int savedFrame_ = 0;
 };
 
 // **The same GNU syntax, assembled into a COFF object.**
@@ -202,7 +209,8 @@ public:
     void align(int n) override;
     void objectType(const std::string &name) override;
     void objectSize(const std::string &name, int size) override;
-    void prologue(int frameSize, const std::string &lsda) override;
+    void prologue(int frameSize, const std::string &lsda, unsigned saved) override;
+    void restoreSaved() override;
     void functionEnd(const std::string &name) override;
     void noteHasEh(bool yes) override { hasEh_ = yes; }
     void initialiserEntry(const std::string &fn, bool dsoHandle) override;

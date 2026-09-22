@@ -108,6 +108,8 @@ public:
     unsigned long removed() const { return removed_; }
     // Whether the function returns a second word in rdx: a ret reads rdx only then.
     void returnUsesRdx(bool yes) { rdxLive_ = yes; }
+    // The function's scalar locals by frame displacement and width - promote()'s candidates.
+    void frameScalars(const std::vector<std::pair<long long, int> > &s) { scalars_ = s; }
 
     void ins(const std::string &m) override;
     void ins(const std::string &m, const Op &a) override;
@@ -116,7 +118,8 @@ public:
     void defLabel(const std::string &l) override;
     void functionBegin(const std::string &name, bool exported,
                        bool mergeable = false) override;
-    void prologue(int frameSize, const std::string &lsda) override;
+    void prologue(int frameSize, const std::string &lsda, unsigned saved) override;
+    void restoreSaved() override;
     void functionEnd(const std::string &name) override;
     void fileEntry(int n, const std::string &name) override;
     void location(int file, int line, int column) override;
@@ -156,6 +159,13 @@ private:
     unsigned initLive_ = 0;
     bool initFlags_ = false;
     bool rdxLive_ = true;
+    std::vector<std::pair<long long, int> > scalars_;
+    // The prologue, held until the body is known so the saves can be named.
+    bool prologueHeld_ = false;
+    int heldFrame_ = 0;
+    std::string heldLsda_;
+    // Set by functionEnd: the flush that follows sees the whole body.
+    bool ending_ = false;
     // The semantics, with the function's own facts applied.
     void semantics(IrIns &x) const;
 
@@ -175,6 +185,9 @@ private:
     void connect();
     void flow();
     bool unroll();
+    // Locals into callee-saved registers; the mask of those it used.
+    unsigned promote();
+    void placeRestore();
     void optimize();
     void replay();
 
@@ -185,6 +198,7 @@ private:
     void peephole();
     bool dropExtensions();
     bool fuseLeas();
+    bool sinkFrameLeas();
     bool pairStack();
     bool retargetDefs();
     bool renameThroughPair();
