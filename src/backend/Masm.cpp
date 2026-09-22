@@ -122,6 +122,10 @@ const Rule kRules[] = {
     { "call", "call", 0 }, { "ret", "ret", 0 },
     { "jmp", "jmp", 0 }, { "je", "je", 0 }, { "jne", "jne", 0 },
     { "jae", "jae", 0 }, { "jns", "jns", 0 },
+    // The branches foldCompareBranch writes, reading a comparison by its flags.
+    { "jl", "jl", 0 }, { "jge", "jge", 0 }, { "jle", "jle", 0 },
+    { "jg", "jg", 0 }, { "jb", "jb", 0 }, { "jbe", "jbe", 0 },
+    { "ja", "ja", 0 }, { "jp", "jp", 0 }, { "jnp", "jnp", 0 },
 
     { "sete", "sete", 0 }, { "setne", "setne", 0 },
     { "setl", "setl", 0 }, { "setle", "setle", 0 },

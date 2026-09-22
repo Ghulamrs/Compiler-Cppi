@@ -204,6 +204,7 @@ private:
     bool pairStack();
     bool retargetDefs();
     bool renameThroughPair();
+    bool foldCompareBranch();
     bool dropDeadDefs();
     bool moveSourceReads();
     bool propagateCopies();

@@ -1005,6 +1005,7 @@ void Optimizer::optimize() {
         if (pairStack())      { changed = true; compact(); analyse(); }
         if (retargetDefs())   { changed = true; compact(); analyse(); }
         if (renameThroughPair()) { changed = true; compact(); analyse(); }
+        if (foldCompareBranch()) { changed = true; compact(); analyse(); }
         if (moveSourceReads())   { changed = true; compact(); analyse(); }
         if (dropDeadDefs())      { changed = true; compact(); analyse(); }
         if (propagateCopies()){ changed = true; compact(); }
@@ -1385,6 +1386,76 @@ static bool implicitly(const IrIns &x, const IrSem &s, int r) {
     for (int k = 0; k < x.operands; k++)
         if (namesReg(k == 0 ? x.a : x.b, r, w)) return false;
     return true;
+}
+
+// **A condition made into a number and then tested again.** `a < b` is a
+// compare, a `setl %al` and a widening, because the value is an int the
+// language may keep; where the branch is its only reader, the flags said it.
+bool Optimizer::foldCompareBranch() {
+    struct Cond { const char *set; const char *jump; const char *inverse; };
+    static const Cond kConds[] = {
+        { "sete", "je", "jne" },   { "setne", "jne", "je" },
+        { "setl", "jl", "jge" },   { "setge", "jge", "jl" },
+        { "setle", "jle", "jg" },  { "setg", "jg", "jle" },
+        { "setb", "jb", "jae" },   { "setae", "jae", "jb" },
+        { "setbe", "jbe", "ja" },  { "seta", "ja", "jbe" },
+        { "setp", "jp", "jnp" },   { "setnp", "jnp", "jp" },
+    };
+    bool changed = false;
+    std::vector<std::size_t> live;
+    live.reserve(run_.size());
+    for (std::size_t i = 0; i < run_.size(); i++)
+        if (!run_[i].dead) live.push_back(i);
+
+    for (std::size_t k = 0; k + 3 < live.size(); k++) {
+        IrIns &set = run_[live[k]];
+        IrIns &wide = run_[live[k + 1]];
+        IrIns &test = run_[live[k + 2]];
+        IrIns &jump = run_[live[k + 3]];
+
+        const Cond *cond = nullptr;
+        for (const Cond &c : kConds)
+            if (set.m == c.set) { cond = &c; break; }
+        if (cond == nullptr || set.operands != 1 || set.a.kind != Op::Reg) continue;
+        int byteReg;
+        {
+            int w;
+            byteReg = regLookup(set.a.text, w);
+            if (byteReg < 0 || byteReg >= kGprCount || w != 1) continue;
+        }
+
+        // The widening: the byte just set, into a general register.
+        if (wide.m != "movzbq" && wide.m != "movzbl") continue;
+        if (wide.operands != 2 || wide.a.kind != Op::Reg || wide.b.kind != Op::Reg) continue;
+        int w1, w2;
+        if (regLookup(wide.a.text, w1) != byteReg || w1 != 1) continue;
+        const int wideReg = regLookup(wide.b.text, w2);
+        if (wideReg < 0 || wideReg >= kGprCount) continue;
+
+        // The test against zero, and the branch that reads it.
+        if (test.m != "cmp" || test.operands != 2) continue;
+        const bool zero = test.a.kind == Op::Imm &&
+                          ((test.a.immNumeric && !test.a.immNeg && test.a.uimm == 0) ||
+                           (!test.a.immNumeric && test.a.text == "0"));
+        if (!zero || test.b.kind != Op::Reg) continue;
+        int w3;
+        if (regLookup(test.b.text, w3) != wideReg) continue;
+        if (jump.operands != 1 || jump.a.kind != Op::Lbl) continue;
+        if (jump.m != "je" && jump.m != "jne") continue;
+
+        // Nothing may want the number, or the flags the test would have left.
+        const std::size_t at = live[k + 3];
+        if (liveOut_[at] & (bit(byteReg) | bit(wideReg))) continue;
+        if (flagsLiveOut_[at]) continue;
+
+        jump.m = jump.m == std::string("jne") ? cond->jump : cond->inverse;
+        jump.semValid = false;
+        set.dead = wide.dead = test.dead = true;
+        removed_ += 3;
+        changed = true;
+        k += 3;
+    }
+    return changed;
 }
 
 // **A value saved round a computation that only needed another register.**
