@@ -41,6 +41,27 @@ for x in "cxx1 -O0|$W/O0" "cxx1 -O1|$W/O1" "cxx1 -O2|$W/O2" "cl /Od|/c/o12study/
     printf '  %-9s %6d ms\n' "$name" $best | tee -a "$R/log.txt"
 done
 
+# ---- the loop kernels, natively: what -O2's unrolling is worth --------------
+echo "=== loops.cpp, each kernel's ms as the program reports it, best of 3" | tee -a "$R/log.txt"
+LP="$(cygpath -w "$ROOT/tools/windows/o1-o2/loops.cpp")"
+mkdir -p "$W/loops"; cd "$W/loops"
+# Compiled and assembled by cxx1, linked here: under Git bash, cxx1's own
+# `link.exe` would find coreutils' link on PATH first.
+for L in 1 2; do
+    "$CXX1" -nologo -O$L -masm=masm -c "$LP" -o "$(cygpath -w "$W/loops/cx-O$L.obj")" > cx-O$L.build 2>&1 || echo "  cxx1 -O$L did not build loops: $(tail -2 cx-O$L.build)"
+    "$LINK" -nologo -subsystem:console -stack:8388608 -out:cx-O$L.exe cx-O$L.obj libcmt.lib libucrt.lib libvcruntime.lib kernel32.lib legacy_stdio_definitions.lib > cx-O$L.link 2>&1 || echo "  cxx1 -O$L loops did not link: $(tail -2 cx-O$L.link)"
+done
+cl -nologo -O1 -Fe:cl-O1.exe "$LP" > cl-O1.build 2>&1 || echo "  cl /O1 did not build loops"
+cl -nologo -O2 -Fe:cl-O2.exe "$LP" > cl-O2.build 2>&1 || echo "  cl /O2 did not build loops"
+for x in cx-O1 cx-O2 cl-O1 cl-O2; do
+    [ -x "$x.exe" ] || continue
+    for i in 1 2 3; do ./$x.exe | tr -d '\r' > "$x.run$i"; done
+    for k in sum fill while dot; do
+        best=$(grep "^$k " $x.run1 $x.run2 $x.run3 | awk '{print $2}' | sort -n | head -1)
+        printf '  %-6s %-6s %6s ms  %s\n' "$x" "$k" "$best" "$(grep "^$k " $x.run1 | sed 's/.*checksum/checksum/')" | tee -a "$R/log.txt"
+    done
+done
+
 echo "=== every runnable Compiler++ case: cxx1's program against cl /O2's, output and exit code" | tee -a "$R/log.txt"
 cd "$CPP/tests"
 for L in 0 1 2; do

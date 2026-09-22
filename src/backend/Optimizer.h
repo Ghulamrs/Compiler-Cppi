@@ -106,6 +106,8 @@ public:
 
     // How many instructions the passes removed, for anyone measuring.
     unsigned long removed() const { return removed_; }
+    // Whether the function returns a second word in rdx: a ret reads rdx only then.
+    void returnUsesRdx(bool yes) { rdxLive_ = yes; }
 
     void ins(const std::string &m) override;
     void ins(const std::string &m, const Op &a) override;
@@ -153,6 +155,9 @@ private:
     // What is live, and whether the flags are, after the run being optimized.
     unsigned initLive_ = 0;
     bool initFlags_ = false;
+    bool rdxLive_ = true;
+    // The semantics, with the function's own facts applied.
+    void semantics(IrIns &x) const;
 
     // Per-run scratch, kept as members so the storage is reused run to run.
     std::vector<unsigned> liveOut_;
@@ -169,6 +174,7 @@ private:
     // really follows it, then all of it replayed in order.
     void connect();
     void flow();
+    bool unroll();
     void optimize();
     void replay();
 
@@ -182,6 +188,8 @@ private:
     bool pairStack();
     bool retargetDefs();
     bool renameThroughPair();
+    bool dropDeadDefs();
+    bool moveSourceReads();
     bool propagateCopies();
     void shorten();
 };
