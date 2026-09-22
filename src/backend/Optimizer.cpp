@@ -1019,6 +1019,8 @@ void Optimizer::optimize() {
         bool changed = false;
         analyse();
         if (dropExtensions()) { changed = true; compact(); analyse(); }
+        if (foldAddIntoAddress()) { changed = true; compact(); analyse(); }
+        if (fuseAddToLea())   { changed = true; compact(); analyse(); }
         if (fuseLeas())       { changed = true; compact(); analyse(); }
         if (sinkFrameLeas())  { changed = true; compact(); analyse(); }
         if (pairStack())      { changed = true; compact(); analyse(); }
@@ -1192,6 +1194,121 @@ bool Optimizer::dropExtensions() {
             }
             known[s.dstReg] = k;
         }
+    }
+    return changed;
+}
+
+// **`add $N,%rD` in front of a use of `(%rD)`** belongs in the displacement:
+// `add rax,113 ; movsx rax, BYTE PTR [rax]` is `movsx rax, BYTE PTR [rax+113]`.
+// The walker writes the add because it computes an address a field at a time -
+// a base loaded, an offset added, the access made - where cl writes the access
+// alone. Fable measured 4,616 of the narrow form in one build of Compiler++
+// and `add` 28,341 times against cl's 7,040.
+//
+// Two things have to be dead, and both are easy to miss. The **flags**, since
+// add writes them and the fold deletes that write. And **%rD's raised value**:
+// after the fold %rD still holds what it held before the add, so the use must
+// either overwrite it or be the last reader.
+bool Optimizer::foldAddIntoAddress() {
+    bool changed = false;
+    for (std::size_t i = 0; i + 1 < run_.size(); i++) {
+        IrIns &a = run_[i];
+        if (a.dead || a.m != "add" || a.operands != 2) continue;
+        if (a.a.kind != Op::Imm || !a.a.immNumeric) continue;
+        int r;
+        if (!isGpr64(a.b, r) || !allocatable(r)) continue;
+        if (flagsLiveOut_[i]) continue;
+
+        long long n = a.a.immNeg ? -static_cast<long long>(a.a.uimm)
+                                 : static_cast<long long>(a.a.uimm);
+
+        IrIns &x = run_[i + 1];
+        if (x.dead) continue;
+        if (x.sem.cls == IrSem::Unknown) continue;
+        // A push or pop moves rsp around the access, as fuseLeas says.
+        if (r == kRsp) continue;
+
+        IrOp *mo = nullptr;
+        if (x.operands >= 1 && x.a.kind == Op::Mem && x.a.text == a.b.text) mo = &x.a;
+        else if (x.operands == 2 && x.b.kind == Op::Mem && x.b.text == a.b.text) mo = &x.b;
+        if (mo == nullptr) continue;
+        // Both operands through the same register would need the fold twice.
+        if (x.operands == 2 && x.a.kind == Op::Mem && x.b.kind == Op::Mem &&
+            x.a.text == a.b.text && x.b.text == a.b.text) continue;
+
+        long long d = (mo->hasDisp ? mo->disp : 0) + n;
+        if (d > 0x7fffffffLL || d < -0x80000000LL) continue;
+
+        const IrOp saved = *mo;
+        mo->disp = d;
+        mo->hasDisp = d != 0;
+        const IrSem t = describe(x);
+        // **Not fuseLeas's test, and the difference matters.** There the base
+        // register vanishes from the instruction, so any remaining use of it
+        // forbids the fold. Here the base stays and only the displacement
+        // moves, so the instruction still reads %rD - and should. What must
+        // not survive is %rD's *raised* value: the use has to overwrite it or
+        // be the last reader.
+        const bool dead = (t.def & bit(r)) != 0 || (liveOut_[i + 1] & bit(r)) == 0;
+        if (t.cls == IrSem::Unknown || !dead) {
+            *mo = saved;
+            continue;
+        }
+        x.sem = t;
+        x.semValid = true;
+        a.dead = true;
+        removed_++;
+        changed = true;
+    }
+    return changed;
+}
+
+// **`mov %rB,%rD ; add $N,%rD` is `lea N(%rB),%rD`**, and spelled that way
+// fuseLeas can go on to put the address inside the instruction that uses it -
+// which is the whole point. The walker writes the pair because it computes a
+// base into a register and then adds the field's offset; cl writes the access
+// itself, `cmp BYTE PTR [rcx+113], bl` where this wrote three instructions.
+//
+// **The add's flags must be dead**, because lea sets none. That is the only
+// thing the rewrite changes about the machine's state, and the one thing a
+// reader would not think to check.
+bool Optimizer::fuseAddToLea() {
+    bool changed = false;
+    for (std::size_t i = 0; i + 1 < run_.size(); i++) {
+        IrIns &m = run_[i];
+        if (m.dead || !isMov64(m)) continue;
+        int rb, rd;
+        if (!isGpr64(m.a, rb) || !isGpr64(m.b, rd)) continue;
+        if (rb == rd || !allocatable(rd)) continue;
+
+        IrIns &a = run_[i + 1];
+        if (a.dead || a.m != "add" || a.operands != 2) continue;
+        if (a.a.kind != Op::Imm || !a.a.immNumeric) continue;
+        int rt;
+        if (!isGpr64(a.b, rt) || rt != rd) continue;
+        if (flagsLiveOut_[i + 1]) continue;
+
+        long long n = a.a.immNeg ? -static_cast<long long>(a.a.uimm)
+                                 : static_cast<long long>(a.a.uimm);
+        if (n > 0x7fffffffLL || n < -0x80000000LL) continue;
+
+        // rsp and rbp are the frame; sinkFrameLeas has its own rules for those
+        // and this pass must not write a lea underneath it.
+        if (rb == kRsp) continue;
+
+        // The source register's name becomes the address's base; nothing else
+        // about the operand changes, which is why it is built by mutating a
+        // copy rather than made fresh.
+        IrOp addr = m.a;
+        addr.kind = Op::Mem;
+        addr.disp = n;
+        addr.hasDisp = n != 0;
+        m.m = "lea";
+        m.a = addr;
+        refresh(m);
+        a.dead = true;
+        removed_++;
+        changed = true;
     }
     return changed;
 }
@@ -1709,6 +1826,24 @@ void Optimizer::shorten() {
         IrIns &x = run_[i];
         if (x.dead) continue;
         x.semValid = false;
+
+        // **`cmp $0,%r` is `test %r,%r`**, a byte shorter and the same flags:
+        // both leave CF and OF clear and take ZF, SF and PF from the value, so
+        // every condition reading them reads the same thing. cl writes `test`;
+        // this wrote `cmp` 3,334 times in a build of Compiler++ against cl's
+        // three. The instruction stays where it is, so nothing about liveness
+        // or the flags' reach changes - only its spelling.
+        // The walker writes this zero both ways - `imm(0)` at one site and
+        // `immText("0")` at four - so both spellings have to be recognised or
+        // the rewrite fires on a fifth of what it should.
+        const bool zeroImm = x.a.kind == Op::Imm &&
+            ((x.a.immNumeric && !x.a.immNeg && x.a.uimm == 0) ||
+             (!x.a.immNumeric && x.a.text == "0"));
+        if (x.m == "cmp" && x.operands == 2 && x.b.kind == Op::Reg && zeroImm) {
+            x.m = "test";
+            x.a = x.b;
+            continue;
+        }
 
         // mov $imm, %r64 with imm in [0, 2^32): movl $imm, %r32 zero-extends
         // and is two bytes shorter, five where the assembler chose movabs;
