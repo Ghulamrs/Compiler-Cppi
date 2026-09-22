@@ -1,6 +1,7 @@
 #include "Optimizer.h"
 
 #include <cstring>
+#include <algorithm>
 #include <map>
 
 IrOp IrOp::from(const Op &o) {
@@ -782,12 +783,158 @@ bool Optimizer::unroll() {
     return any;
 }
 
-// **Locals into callee-saved registers - not written yet.** The plan is in
-// docs/O1-O2-STUDY-2026-09-21.md section 6: a scalar whose every access is a
-// plain operand of its width, address never taken, takes rbx or r12-r15.
-unsigned Optimizer::promote() { return 0; }
-void Optimizer::placeRestore() {}
-bool Optimizer::sinkFrameLeas() { return false; }
+// **How wide an access to memory is**, from the mnemonic's suffix where it
+// carries one, else from the register on the other side. A width nobody can
+// name disqualifies the slot rather than guessing at it.
+static int accessWidth(const IrIns &x, const IrOp &mem) {
+    struct Suffix { const char *m; int w; };
+    static const Suffix kSuffix[] = {
+        { "movslq", 4 }, { "movsbq", 1 }, { "movswq", 2 },
+        { "movzbq", 1 }, { "movzwq", 2 }, { "movzbl", 1 }, { "movzwl", 2 },
+        { "movsbl", 1 }, { "movswl", 2 }, { "movsbw", 1 }, { "movzbw", 1 },
+        { "movb", 1 }, { "movw", 2 }, { "movl", 4 }, { "movq", 8 },
+        { "testb", 1 }, { "testw", 2 }, { "testl", 4 }, { "testq", 8 },
+        { "addl", 4 }, { "cmpl", 4 }, { "incl", 4 }, { "decl", 4 },
+        { "incq", 8 }, { "decq", 8 },
+        { "push", 8 }, { "pushq", 8 }, { "pop", 8 }, { "popq", 8 },
+    };
+    for (const Suffix &e : kSuffix)
+        if (x.m == e.m) return e.w;
+    // The other operand names the width when it is a register.
+    for (int k = 0; k < x.operands; k++) {
+        const IrOp &o = k == 0 ? x.a : x.b;
+        if (&o == &mem || o.kind != Op::Reg) continue;
+        int w;
+        const int r = regLookup(o.text, w);
+        if (r < 0 || r >= kGprCount || w == 0) return 0;
+        return w;
+    }
+    return 0;
+}
+
+// **A local kept in a register instead of its frame slot**, which is the one
+// thing the walker's code most wants: every variable it writes is a load and
+// a store, and cl's /O2 is two to three times faster on a loop for this reason.
+
+// A slot qualifies when every rbp-relative operand that touches it names it
+// exactly and at its own width: a `lea` of it, an access of another width, or
+// one reaching into its middle all disqualify.
+
+// The levels part over how many registers to keep - see below.
+unsigned Optimizer::promote() {
+    // The epilogue must be the shape placeRestore() knows, or the registers
+    // could not be brought back: nothing is promoted then.
+    bool epilogue = false;
+    for (const IrChunk &c : chunks_)
+        for (std::size_t k = 0; k < c.ins.size(); k++) {
+            if (c.ins[k].dead || c.ins[k].m != "ret") continue;
+            for (std::size_t j = k; j-- > 0;) {
+                if (c.ins[j].dead) continue;
+                const IrIns &t = c.ins[j];
+                epilogue = t.m == "leave" ||
+                           (isMov64(t) && isReg(t.a, "%rbp") && isReg(t.b, "%rsp")) ||
+                           (t.m == "pop" && t.operands == 1 && isReg(t.a, "%rbp"));
+                break;
+            }
+        }
+    if (!epilogue) return 0;
+
+    std::map<long long, int> width;      // candidate slot -> the width it must be
+    for (std::size_t i = 0; i < scalars_.size(); i++)
+        width[scalars_[i].first] = scalars_[i].second;
+    std::map<long long, long> count;
+    std::map<long long, bool> refused;
+
+    for (IrChunk &c : chunks_)
+        for (IrIns &x : c.ins) {
+            if (x.dead) continue;
+            if (!x.semValid) semantics(x);
+            for (int k = 0; k < x.operands; k++) {
+                const IrOp &o = k == 0 ? x.a : x.b;
+                if (o.text != "%rbp") continue;
+                const long long d = o.hasDisp ? o.disp : 0;
+                if (o.kind != Op::Mem) { refused[d] = true; continue; }
+                // An access that starts inside a candidate rather than at it.
+                for (std::map<long long, int>::const_iterator it = width.begin();
+                     it != width.end(); ++it)
+                    if (d > it->first && d < it->first + it->second) refused[it->first] = true;
+                std::map<long long, int>::const_iterator it = width.find(d);
+                if (it == width.end()) continue;
+                // `lea` takes the address; any other mnemonic must name a width.
+                if (x.m == "lea" || accessWidth(x, o) != it->second || x.sem.cls == IrSem::Unknown)
+                    refused[d] = true;
+                else
+                    count[d]++;
+            }
+        }
+
+    std::vector<std::pair<long, long long> > best;
+    for (std::map<long long, long>::const_iterator it = count.begin(); it != count.end(); ++it)
+        if (!refused[it->first]) best.push_back(std::make_pair(it->second, it->first));
+    if (best.empty()) return 0;
+    std::sort(best.begin(), best.end());
+    std::reverse(best.begin(), best.end());
+
+    // **Here is where the levels part**, as cl's /Os and /Ot do: a register
+    // costs a save and a restore every call pays, an access converted saves
+    // three or four bytes. -O2 takes five for speed, -O1 two and four uses up.
+    static const int kHome[] = { 1, 12, 13, 14, 15 };
+    const std::size_t most = level_ >= 2 ? 5u : 2u;
+    const long least = level_ >= 2 ? 1 : 4;
+    std::map<long long, int> home;
+    unsigned saved = 0;
+    for (std::size_t i = 0; i < best.size() && i < most; i++) {
+        if (best[i].first < least) break;
+        home[best[i].second] = kHome[i];
+        saved |= bit(kHome[i]);
+    }
+    if (home.empty()) return 0;
+
+    for (IrChunk &c : chunks_)
+        for (IrIns &x : c.ins) {
+            if (x.dead) continue;
+            bool touched = false;
+            for (int k = 0; k < x.operands; k++) {
+                IrOp &o = k == 0 ? x.a : x.b;
+                if (o.kind != Op::Mem || o.text != "%rbp") continue;
+                std::map<long long, int>::const_iterator it =
+                    home.find(o.hasDisp ? o.disp : 0);
+                if (it == home.end()) continue;
+                o.kind = Op::Reg;
+                o.text = regName(it->second, width[o.hasDisp ? o.disp : 0]);
+                o.disp = 0;
+                o.hasDisp = false;
+                touched = true;
+            }
+            if (touched) refresh(x);
+        }
+    return saved;
+}
+
+// **The restore goes where rbp still addresses the frame**, which is before
+// the teardown: the chunk holding the epilogue is split there, and the tail
+// carries the call as the event that precedes it.
+void Optimizer::placeRestore() {
+    for (std::size_t ci = 0; ci < chunks_.size(); ci++) {
+        IrChunk &c = chunks_[ci];
+        std::size_t at = c.ins.size();
+        for (std::size_t k = 0; k < c.ins.size(); k++) {
+            const IrIns &t = c.ins[k];
+            if (t.dead) continue;
+            if (t.m == "leave" || (isMov64(t) && isReg(t.a, "%rbp") && isReg(t.b, "%rsp")) ||
+                (t.m == "lea" && t.operands == 2 && t.a.kind == Op::Mem &&
+                 t.a.text == "%rbp" && isReg(t.b, "%rsp")))
+                { at = k; break; }
+        }
+        if (at == c.ins.size()) continue;
+        IrChunk tail;
+        tail.before.push_back([this]() { under_->restoreSaved(); });
+        tail.ins.assign(c.ins.begin() + static_cast<long>(at), c.ins.end());
+        c.ins.resize(at);
+        chunks_.insert(chunks_.begin() + static_cast<long>(ci) + 1, tail);
+        return;
+    }
+}
 
 void Optimizer::replay() {
     for (IrChunk &c : chunks_) {
@@ -823,10 +970,9 @@ void Optimizer::flush() {
                 optimize();
                 run_.swap(c.ins);
             }
-            // After the first round, with the walker's leas sunk: the locals
-            // into registers. Only with the whole body in hand, and never in
-            // a function with handlers - a Windows catch funclet reads the
-            // parent's slots through the establisher, and would read a stale one.
+            // After the first round: the locals into registers, with the
+            // whole body in hand and never where there are handlers - a
+            // Windows funclet reads the parent's slots and would read a stale one.
             if (round == 0 && prologueHeld_ && ending_ && heldLsda_.empty() && !scalars_.empty())
                 saved = promote();
             // unroll() would go here, after the first round and before the
@@ -855,6 +1001,7 @@ void Optimizer::optimize() {
         analyse();
         if (dropExtensions()) { changed = true; compact(); analyse(); }
         if (fuseLeas())       { changed = true; compact(); analyse(); }
+        if (sinkFrameLeas())  { changed = true; compact(); analyse(); }
         if (pairStack())      { changed = true; compact(); analyse(); }
         if (retargetDefs())   { changed = true; compact(); analyse(); }
         if (renameThroughPair()) { changed = true; compact(); analyse(); }
@@ -1091,6 +1238,72 @@ bool Optimizer::fuseLeas() {
 
 // Otherwise the pushed register intact until the pop, and the pop is a move
 // from it. The word below rsp is one nothing reads, as peephole() says.
+
+// **The address of a frame slot, taken once and used as a base several
+// times.** `lea D(%rbp), %r ; ... k(%r) ...` is the walker's `i++` idiom - it
+// wants the address twice - and fuseLeas takes only a single use.
+
+// Every use is rewritten to `D+k(%rbp)` and the lea goes, so the slot is
+// reached by its own displacement: without this, promote() would see an
+// address taken where none really is.
+bool Optimizer::sinkFrameLeas() {
+    bool changed = false;
+    const std::size_t n = run_.size();
+    std::vector<std::size_t> uses;
+    for (std::size_t i = 0; i + 1 < n; i++) {
+        IrIns &l = run_[i];
+        if (l.dead || l.m != "lea" || l.operands != 2) continue;
+        if (l.a.kind != Op::Mem || l.a.text != "%rbp") continue;
+        int r;
+        if (!isGpr64(l.b, r) || !allocatable(r)) continue;
+        const long long base = l.a.hasDisp ? l.a.disp : 0;
+
+        uses.clear();
+        bool ok = true, dead = false;
+        for (std::size_t j = i + 1; j < n && ok; j++) {
+            if (j - i > kScanLimit) { ok = false; break; }
+            IrIns &x = run_[j];
+            if (x.dead) continue;
+            const IrSem &s = x.sem;
+            if (s.cls == IrSem::Unknown || s.cls == IrSem::Call) { ok = false; break; }
+            if (s.use & bit(r)) {
+                // Only as a memory base, and only where the displacements add.
+                for (int k = 0; k < x.operands && ok; k++) {
+                    const IrOp &o = k == 0 ? x.a : x.b;
+                    int w;
+                    if (!namesReg(o, r, w)) continue;
+                    if (o.kind != Op::Mem) { ok = false; break; }
+                    const long long d = base + (o.hasDisp ? o.disp : 0);
+                    if (d > 0x7fffffffLL || d < -0x80000000LL) ok = false;
+                }
+                if (!ok) break;
+                uses.push_back(j);
+            }
+            if (s.def & bit(r)) { dead = true; break; }
+            if (s.part & bit(r)) { ok = false; break; }
+        }
+        if (!ok || uses.empty()) continue;
+        if (!dead && (liveOut_[n - 1] & bit(r))) continue;
+
+        for (std::size_t j : uses) {
+            IrIns &x = run_[j];
+            for (int k = 0; k < x.operands; k++) {
+                IrOp &o = k == 0 ? x.a : x.b;
+                int w;
+                if (o.kind != Op::Mem || !namesReg(o, r, w)) continue;
+                o.disp = base + (o.hasDisp ? o.disp : 0);
+                o.hasDisp = o.disp != 0;
+                o.text = "%rbp";
+            }
+            refresh(x);
+        }
+        l.dead = true;
+        removed_++;
+        changed = true;
+    }
+    return changed;
+}
+
 bool Optimizer::pairStack() {
     bool changed = false;
     const std::size_t n = run_.size();
@@ -1503,7 +1716,6 @@ void Optimizer::prologue(int frameSize, const std::string &lsda, unsigned saved)
 }
 void Optimizer::restoreSaved() { interrupt(); under_->restoreSaved(); }
 void Optimizer::functionEnd(const std::string &name) {
-    ending_ = true;
     interrupt();
     ending_ = false;
     scalars_.clear();

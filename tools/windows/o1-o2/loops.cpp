@@ -47,6 +47,23 @@ static long long kernelDot(int reps) {
     return s;
 }
 
+// Six live scalars at once - more than -O1's two registers hold and no more
+// than -O2's five plus the frame - so the two levels have something to differ
+// over. Without a kernel like this the split cannot be measured at all.
+static long long kernelMany(int reps) {
+    long long s = 0;
+    for (int r = 0; r < reps; r = r + 1) {
+        int a1 = r, a2 = r + 1, a3 = r + 2, a4 = r + 3, a5 = r + 4;
+        int i = 0;
+        while (i < 4096) {
+            a1 = a1 + i; a2 = a2 ^ i; a3 = a3 + a1; a4 = a4 ^ a2; a5 = a5 + a3;
+            i = i + 1;
+        }
+        s = s + a1 + a2 + a3 + a4 + a5;
+    }
+    return s;
+}
+
 static void report(const char *name, long long value, clock_t from) {
     clock_t to = clock();
     printf("%-6s %8ld ms  checksum %lld\n", name, (long)((to - from) * 1000 / CLOCKS_PER_SEC), value);
@@ -59,5 +76,6 @@ int main() {
     t = clock(); report("fill",  kernelFill(20000),  t);
     t = clock(); report("while", kernelWhile(2000),  t);
     t = clock(); report("dot",   kernelDot(20000),   t);
+    t = clock(); report("many",  kernelMany(20000),  t);
     return 0;
 }

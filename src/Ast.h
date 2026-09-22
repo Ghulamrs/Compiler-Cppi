@@ -573,6 +573,13 @@ struct Local {
     std::string staticName;
 
     int scope = 0;
+
+    // **`volatile` was written on it.** The qualifier is not in this
+    // compiler's type system, so this is the only place the word survives.
+
+    // What it must still buy is that the object keeps its address - every
+    // read a read - so no register may stand in for it.
+    bool isVolatile = false;
 };
 
 class Function {

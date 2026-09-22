@@ -61,8 +61,9 @@ void GnuSpelling::functionBegin(const std::string &name, bool exported,
 // **Unwind data, and it is the same three directives in every function.** A
 // cxx1 frame has one shape, so the CFA is rbp + 16 throughout; without it a
 // backtrace stops here and no exception passes. MASM has always said this.
-// The callee-saved registers in the order the prologue keeps them, as the
-// Optimizer indexes them, and as the unwinder numbers them (rbx is 3).
+
+// The callee-saved registers in the prologue's order, as the Optimizer indexes
+// them, and as the unwinder numbers them (rbx is 3).
 static const char *const kSavedNames[] = { "%rbx", "%r12", "%r13", "%r14", "%r15" };
 static const int kSavedIndex[] = { 1, 12, 13, 14, 15 };
 static const int kUnwindReg[] = { 3, 12, 13, 14, 15 };

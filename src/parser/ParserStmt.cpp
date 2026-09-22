@@ -162,6 +162,7 @@ StmtPtr Parser::declarationBody() {
                                      "constructor");
                 int off = declare(d.name, d.type, d.pos, quals.alignAs);
                 locals_.back().guardsJump = true;
+                fnVars_.back().isVolatile = quals.isVolatile;
                 if (arrayCtor) {
                     int indexSlot = allocateFrameSlot(types_.intType());
                     inits.push_back(constructLocalArray(d, off, indexSlot));
@@ -193,6 +194,7 @@ StmtPtr Parser::declarationBody() {
 
             int off = declare(d.name, d.type, d.pos, quals.alignAs);
             locals_.back().guardsJump = true;
+            fnVars_.back().isVolatile = quals.isVolatile;
 
             // The backing array and the list object, before the constructor
             // that reads them - a list-init only.

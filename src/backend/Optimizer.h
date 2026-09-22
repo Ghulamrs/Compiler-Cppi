@@ -108,6 +108,8 @@ public:
     unsigned long removed() const { return removed_; }
     // Whether the function returns a second word in rdx: a ret reads rdx only then.
     void returnUsesRdx(bool yes) { rdxLive_ = yes; }
+    // The body is complete: the next flush sees all of it and may promote.
+    void endOfBody() { ending_ = true; }
     // The function's scalar locals by frame displacement and width - promote()'s candidates.
     void frameScalars(const std::vector<std::pair<long long, int> > &s) { scalars_ = s; }
 

@@ -1500,6 +1500,19 @@ void X86_64Linux::emit(const Function &fn) {
     opt_.returnUsesRdx(sretSlot_ == 0 && fn.returns()->isStructOrUnion() &&
                        fn.returns()->size(target_) > 8);
 
+    // **The locals a register could stand in for**: whole scalars by the
+    // displacement the walker addresses them at, never a `volatile` one and
+    // never a reference, whose slot is the pointer it is reached through.
+    std::vector<std::pair<long long, int> > scalars;
+    for (const Local &l : fn.locals()) {
+        if (!l.staticName.empty() || l.isVolatile || l.type == nullptr) continue;
+        if (l.type->isReference() || !(l.type->isInteger() || l.type->isPointer())) continue;
+        const int w = l.type->size(target_);
+        if (w != 1 && w != 2 && w != 4 && w != 8) continue;
+        scalars.push_back(std::make_pair(static_cast<long long>(-l.offset), w));
+    }
+    opt_.frameScalars(scalars);
+
     regSave_ = fn.regSaveSlot();
     if (fn.isVariadic() && abi_.positional) {
         for (int i = 0; i < abi_.intCount; i++)
@@ -1622,6 +1635,7 @@ void X86_64Linux::emit(const Function &fn) {
     }
     a_->ins("pop", reg("%rbp"));
     a_->ins("ret");
+    opt_.endOfBody();
     // Before .cfi_endproc, because the last call-site range measures to it.
     if (!lineSource() && !callSites().empty() && !usesFunclets())
         a_->defLabel(".Lfunc.end." + fn.symbol());

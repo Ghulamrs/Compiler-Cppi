@@ -103,11 +103,12 @@ public:
 
     virtual void functionBegin(const std::string &name, bool exported,
                                bool mergeable = false) = 0;
-// `lsda` names this function's exception table, or is empty where it has no
-// landing pad. The personality routine must be named between .cfi_startproc
-// and the first instruction, and this is the only place that sees both.
-    // `saved`: the callee-saved registers the body keeps locals in, as bits of
-    // their Optimizer index (rbx 1, r12..r15 12..15); restoreSaved() brings them back.
+// `lsda` names this function's exception table, or is empty where it has none:
+// the personality must be named between .cfi_startproc and the first
+// instruction, and this is the only place that sees both.
+
+// `saved` is the callee-saved registers the body keeps locals in, as bits of
+// their Optimizer index (rbx 1, r12..r15 12..15); restoreSaved() undoes them.
     virtual void prologue(int frameSize, const std::string &lsda, unsigned saved) = 0;
     virtual void restoreSaved() = 0;
     virtual void functionEnd(const std::string &name) = 0;
