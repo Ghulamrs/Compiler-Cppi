@@ -310,6 +310,7 @@ void Walker::msTryStatement(const Try &n) {
 
     defineLabel(r.begin);
     for (std::size_t i = 0; i < n.body().size(); i++) n.body()[i]->accept(*this);
+    regionEnd();
     defineLabel(r.end);
     defineLabel(r.resume);
 

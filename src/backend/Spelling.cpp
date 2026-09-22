@@ -24,15 +24,20 @@ void GnuSpelling::op(const Op &x) {
     }
 }
 
-void GnuSpelling::ins(const std::string &m) { o_ += "  "; o_ += m; o_ += '\n'; }
+void GnuSpelling::ins(const std::string &m) {
+    lastWasCall_ = m == "call";
+    o_ += "  "; o_ += m; o_ += '\n';
+}
 
 void GnuSpelling::ins(const std::string &m, const Op &a) {
+    lastWasCall_ = m == "call";
     o_ += "  "; o_ += m; o_ += ' ';
     op(a);
     o_ += '\n';
 }
 
 void GnuSpelling::ins(const std::string &m, const Op &a, const Op &b) {
+    lastWasCall_ = m == "call";
     o_ += "  "; o_ += m; o_ += ' ';
     op(a);
     o_ += ", ";
@@ -68,9 +73,12 @@ static const char *const kSavedNames[] = { "%rbx", "%r12", "%r13", "%r14", "%r15
 static const int kSavedIndex[] = { 1, 12, 13, 14, 15 };
 static const int kUnwindReg[] = { 3, 12, 13, 14, 15 };
 
-void GnuSpelling::prologue(int frameSize, const std::string &lsda, unsigned saved) {
+void GnuSpelling::prologue(int frameSize, const std::string &lsda, unsigned saved,
+                           int outgoing) {
     saved_ = saved;
     savedFrame_ = frameSize;
+    int n = 0;
+    for (int k = 0; k < 5; k++) if (saved & (1u << kSavedIndex[k])) n++;
     o_ += "  .cfi_startproc\n";
     if (!lsda.empty()) {
         o_ += "  .cfi_personality 155, DW.ref.__gxx_personality_v0\n";
@@ -81,11 +89,17 @@ void GnuSpelling::prologue(int frameSize, const std::string &lsda, unsigned save
     o_ += "  .cfi_offset %rbp, -16\n";
     ins("mov", reg("%rsp"), reg("%rbp"));
     o_ += "  .cfi_def_cfa_register %rbp\n";
+    // **The outgoing area goes under everything**, so with nothing to save it
+    // and the frame are one allocation.
+    if (n == 0) {
+        if (frameSize + outgoing > 0) ins("sub", imm(frameSize + outgoing), reg("%rsp"));
+        return;
+    }
     if (frameSize > 0) ins("sub", imm(frameSize), reg("%rsp"));
     // **The saves go below the frame**, pushed after it so every offset the
     // walker wrote against rbp stands; an odd count takes eight more to keep
     // the stack at sixteen. Each is told to the unwinder against the CFA.
-    int n = 0;
+    n = 0;
     for (int k = 0; k < 5; k++) {
         if (!(saved & (1u << kSavedIndex[k]))) continue;
         ins("push", reg(kSavedNames[k]));
@@ -94,7 +108,8 @@ void GnuSpelling::prologue(int frameSize, const std::string &lsda, unsigned save
         appendNum(o_, static_cast<unsigned long long>(16 + frameSize + 8 * n));
         o_ += '\n';
     }
-    if (n % 2 == 1) ins("sub", imm(8), reg("%rsp"));
+    const int below = (n % 2 == 1 ? 8 : 0) + outgoing;
+    if (below > 0) ins("sub", imm(below), reg("%rsp"));
 }
 
 void GnuSpelling::restoreSaved() {
@@ -280,7 +295,7 @@ void CoffSpelling::restoreSaved() {
     for (int k = 0; k < 5; k++) {
         if (!(saved_ & (1u << kSavedIndex[k]))) continue;
         o_ += "  mov ";
-        appendNum(o_, static_cast<unsigned long long>(8 * n));
+        appendNum(o_, static_cast<unsigned long long>(outgoing_ + 8 * n));
         o_ += "(%rbp), " + std::string(kSavedNames[k]) + "\n";
         n++;
     }
@@ -293,15 +308,17 @@ void CoffSpelling::objectSize(const std::string &name, int size) {
 // **Hand-written, because `.seh_handlerdata` cannot live in a COMDAT.** The
 // `.seh_*` directives are the tidy way and the assembler builds .pdata and
 // .xdata from them - measured, and it works for every function in plain .text.
-void CoffSpelling::prologue(int frameSize, const std::string &lsda, unsigned saved) {
+void CoffSpelling::prologue(int frameSize, const std::string &lsda, unsigned saved,
+                            int outgoing) {
     hasEh_ = !lsda.empty();
     saved_ = saved;
-    // **The saves sit at the bottom of the frame, and the frame grows to hold
-    // them**: rbp is taken after the allocation, so the renderer's constant
-    // grows alike and every rbp-relative operand still lands where it did.
+    outgoing_ = outgoing;
+    // **The saves sit on the outgoing area at the bottom of the frame, and the
+    // frame grows to hold both**: rbp is taken after the allocation, so the
+    // renderer's constant grows alike and every rbp operand lands where it did.
     int n = 0;
     for (int k = 0; k < 5; k++) if (saved & (1u << kSavedIndex[k])) n++;
-    frameSize += 8 * n + (n % 2 == 1 ? 8 : 0);
+    frameSize += outgoing + 8 * n + (n % 2 == 1 ? 8 : 0);
     frameSize_ = frameSize;
     savedFrame_ = frameSize;
     const std::string b = "\"$LNbeg$" + fnName_ + "\"";
@@ -327,13 +344,13 @@ void CoffSpelling::prologue(int frameSize, const std::string &lsda, unsigned sav
     for (int k = 0; k < 5; k++) {
         if (!(saved & (1u << kSavedIndex[k]))) continue;
         o_ += "  mov " + std::string(kSavedNames[k]) + ", ";
-        appendNum(o_, static_cast<unsigned long long>(8 * n));
+        appendNum(o_, static_cast<unsigned long long>(outgoing + 8 * n));
         o_ += "(%rsp)\n\"$LNsave" + std::to_string(n) + "$" + fnName_ + "\":\n";
         // UWOP_SAVE_NONVOL is 4 with the register in the high nibble, then
         // the slot's offset from rsp in eights.
         saves = "  .byte \"$LNsave" + std::to_string(n) + "$" + fnName_ + "\"-" + b +
                 "\n  .byte " + std::to_string((kUnwindReg[k] << 4) | 4) +
-                "\n  .short " + std::to_string(n) + "\n" + saves;
+                "\n  .short " + std::to_string(outgoing / 8 + n) + "\n" + saves;
         n++;
     }
     o_ += "  mov %rsp, %rbp\n";

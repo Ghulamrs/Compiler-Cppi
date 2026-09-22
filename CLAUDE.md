@@ -10220,6 +10220,65 @@ x86_64-windows, every one a `this` reload or a `.quad` reorder); Linux 496
 and 1187 under g++; Windows 465 under cl - the 461 cases and both directions
 of both pairs - and 190 names agreeing.
 
+## The outgoing area: shadow space and stack arguments allocated once, 2026-09-23
+
+**Every call used to be `sub rsp,32 ; call ; add rsp,32`**, and a stack
+argument was a `push`. cl allocates the callee's shadow space and the widest
+call's stack arguments once, in the prologue, and writes arguments into that
+area with `mov`; a build of Compiler++ counted 9,398 `sub rsp,20h` against cl's
+699. Now the walker finds every call in a body before walking it (`CallScan`,
+a visitor that does nothing but reach children), sizes the area as the widest
+`shadowBytes + 8 * stackWords` over them rounded to sixteen, and
+`Spelling::prologue` takes it as a fourth argument. It sits at the very bottom
+of the frame - below the callee-saved registers the optimizer spills, which
+moved up by it on both Windows spellings, save and restore alike - so that a
+call made with nothing on the expression stack finds it exactly at rsp.
+
+**Only a call at expression depth zero takes it.** This backend is a stack
+machine: `a + f(x)` has `a` pushed when `f` is called, and the area is above
+that word, not at rsp. Such a call keeps the old sequence, pushes below the
+area and all. Measured on Compiler++: 13,249 of 15,348 calls are at depth
+zero. A call nested in a later argument of one that has already written a
+stack argument into the area takes the old road too (`areaBusy_`), and a
+funclet's own 32 bytes are all a call inside it may use. A call that needs
+more than the area - one the scan did not reach - falls back the same way, so
+the scan's completeness costs bytes and never correctness.
+
+**The measurement, Compiler++ linked on the Windows box against the same
+build of the parent commit:** .text 656,958 -> 606,110 at -O1 (-50,848,
+-7.74%) and 672,494 -> 622,046 at -O2 (-50,448), the region-end nops below
+being 96 and 64 of that; .rdata +120 and +152, the ALLOC_LARGE unwind codes
+for frames that crossed 128 bytes. The estimate had
+been -55 to -65 KB from the `sub rsp,20h` count, and that count included the
+prologues of every function whose frame was exactly 32 bytes, which stay; the
+fourteen per cent of calls above depth zero stay too. The optimizer's stack
+passes were checked, not assumed: the pop count of the MASM text is identical
+before and after (11,996 at -O1), so pairStack and renameThroughPair fold the
+same register-argument pairs; the push count fell by exactly the stack
+arguments that became stores.
+
+**The runtime reads a frame's state at the return address, not one before
+it.** With the `add rsp,32` gone, a `try { f(); }` ended on the `call` itself:
+the return address was the `tryend` label, the ip2state map put it in the state
+outside the try, and every catch after such a call was missed - four cases,
+`_CxxThrowException` reaching std::terminate, and a `noexcept` case caught by
+the wrong frame. Proven by hand on the box: the same MASM text with a `nop`
+after each such call passes. cl writes `npad 1` there. So `Walker::regionEnd`
+runs before a Microsoft region's end label and the x86-64 walker answers it
+with a `nop` when the spelling's last instruction was a call (`lastWasCall`,
+kept by every `ins`). 356 nops across the 82 Windows goldens that have a try;
+the Itanium targets subtract one from the return address and need none.
+
+**The bug the linked program found and the suite did not.** The first build
+saved rbx at `[rsp+32]` and restored it from `[rbp+0]` - the prologue had moved
+the saves up by the area and `restoreSaved` had not followed - and Compiler++
+built with it died with an access violation on sample.cpp at both levels. The
+cases pass at -O0, where nothing is promoted, so a run of the suite alone would
+have said yes. tests/emit.sh sees the frames (357 of 1,281 goldens changed, all
+of them rsp/rbp displacements, unwind bytes and pushes become stores; 60 on
+Linux, where only a call with stack arguments has an area at all); the linked
+program is what proves the frame. Keep running one.
+
 ## Build
 
 ```

@@ -152,6 +152,9 @@ protected:
     // A cleanup funclet is opened the same way and closed differently.
     virtual void endCleanupFunclet() {}
 
+    // A Microsoft try region is about to close; a call may not be its last instruction.
+    virtual void regionEnd() {}
+
     // Open a handler funclet and answer its symbol; close it naming the address
     // in the parent to continue at, which a funclet returns in rax. Between the
     // two the body is walked as if inline, the funclet setting rbp from the parent.

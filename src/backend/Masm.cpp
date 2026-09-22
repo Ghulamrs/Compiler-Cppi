@@ -116,7 +116,7 @@ const Rule kRules[] = {
     { "cmp", "cmp", 0 }, { "cdq", "cdq", 0 }, { "cqo", "cqo", 0 },
     { "addl", "add", 4 }, { "cmpl", "cmp", 4 }, { "testb", "test", 1 },
     { "test", "test", 0 }, { "testq", "test", 8 }, { "testl", "test", 4 },
-    { "testw", "test", 2 }, { "leave", "leave", 0 },
+    { "testw", "test", 2 }, { "leave", "leave", 0 }, { "nop", "nop", 0 },
 
     { "rep movsq", "rep movsq", 0 },
     { "call", "call", 0 }, { "ret", "ret", 0 },
@@ -217,12 +217,14 @@ MasmSpelling::Rendered MasmSpelling::render(const Op &x) {
 }
 
 void MasmSpelling::ins(const std::string &m) {
+    lastWasCall_ = m == "call";
     const Rule *r = ruleFor(m);
     if (r == nullptr) give_up(m, "an instruction this spelling does not know");
     o_ += "  "; o_ += r->masm; o_ += '\n';
 }
 
 void MasmSpelling::ins(const std::string &m, const Op &a) {
+    lastWasCall_ = m == "call";
     const Rule *r = ruleFor(m);
     if (r == nullptr) give_up(m, "an instruction this spelling does not know");
     Rendered x = render(a);
@@ -232,6 +234,7 @@ void MasmSpelling::ins(const std::string &m, const Op &a) {
 }
 
 void MasmSpelling::ins(const std::string &m, const Op &a, const Op &b) {
+    lastWasCall_ = m == "call";
     const Rule *r = ruleFor(m);
     if (r == nullptr) give_up(m, "an instruction this spelling does not know");
 
@@ -304,7 +307,7 @@ void MasmSpelling::restoreSaved() {
     int n = 0;
     for (int k = 0; k < 5; k++) {
         if (!(saved_ & (1u << kSavedIndex[k]))) continue;
-        o_ += "  mov " + std::string(kSavedNames[k]) + ", QWORD PTR [rbp+" + std::to_string(8 * n) + "]\n";
+        o_ += "  mov " + std::string(kSavedNames[k]) + ", QWORD PTR [rbp+" + std::to_string(outgoing_ + 8 * n) + "]\n";
         n++;
     }
 }
@@ -314,17 +317,20 @@ void MasmSpelling::raw(const std::string &text) {
     o_ += text;
 }
 
-void MasmSpelling::prologue(int frameSize, const std::string &lsda, unsigned saved) {
+void MasmSpelling::prologue(int frameSize, const std::string &lsda, unsigned saved,
+                            int outgoing) {
     // **The LSDA name says a landing pad exists, which is not the same
     // question.** A Microsoft FuncInfo follows only where one is written, and
     // the code generator says so through `noteHasEh` before `functionEnd`.
     (void)lsda;
     saved_ = saved;
+    outgoing_ = outgoing;
     // The saves sit at the bottom of the frame, which grows to hold them; rbp
     // is taken after the allocation, so the renderer's constant grows alike.
+    // The outgoing area is lower still, and the saves sit on top of it.
     int n = 0;
     for (int k = 0; k < 5; k++) if (saved & (1u << kSavedIndex[k])) n++;
-    frameSize += 8 * n + (n % 2 == 1 ? 8 : 0);
+    frameSize += outgoing + 8 * n + (n % 2 == 1 ? 8 : 0);
     frameSize_ = frameSize;
     const std::string m = mangle(fnName_);
 
@@ -350,14 +356,14 @@ void MasmSpelling::prologue(int frameSize, const std::string &lsda, unsigned sav
     n = 0;
     for (int k = 0; k < 5; k++) {
         if (!(saved & (1u << kSavedIndex[k]))) continue;
-        o_ += "  mov QWORD PTR [rsp+" + std::to_string(8 * n) + "], " + kSavedNames[k] + "\n";
+        o_ += "  mov QWORD PTR [rsp+" + std::to_string(outgoing + 8 * n) + "], " + kSavedNames[k] + "\n";
         o_ += "$LNsave" + std::to_string(n) + "$" + m + ":\n";
         // UWOP_SAVE_NONVOL is 4 with the register in the high nibble, then
         // the slot's offset from rsp in eights.
         char code[8];
         std::snprintf(code, sizeof code, "0%02XH", (kUnwindReg[k] << 4) | 4);
         saves = "  DB $LNsave" + std::to_string(n) + "$" + m + "-$LNbeg$" + m + "\n  DB " + code +
-                "\n  DW " + std::to_string(n) + "\n" + saves;
+                "\n  DW " + std::to_string(outgoing / 8 + n) + "\n" + saves;
         n++;
     }
     o_ += "  mov rbp, rsp\n";
@@ -645,6 +651,7 @@ void MasmCodeGen::storeUnwindHelp(int slot) {
 // back to it gives the body exactly - and the code generator knows none of it.
 std::string MasmCodeGen::beginFunclet() {
     opt_.flush();
+    funcletDepth_++;
     masm_.raw("");                       // nothing pending inside the slice
     funcletMark_ = out_.size();
     funcletSymbol_ = masm_.mangledName() + funcletKind_ +
@@ -666,6 +673,7 @@ void MasmCodeGen::endFunclet(const std::string &resume) {
 
 void MasmCodeGen::closeFunclet(const std::string &tail) {
     opt_.flush();
+    funcletDepth_--;
     masm_.raw("");
     std::string body = out_.substr(funcletMark_);
     out_.resize(funcletMark_);

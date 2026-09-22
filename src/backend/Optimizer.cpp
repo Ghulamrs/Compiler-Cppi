@@ -611,16 +611,19 @@ void Optimizer::add(IrIns &&i) {
 }
 
 void Optimizer::ins(const std::string &m) {
+    lastWasCall_ = m == "call";
     IrIns i; i.m = m; i.operands = 0;
     add(std::move(i));
 }
 
 void Optimizer::ins(const std::string &m, const Op &a) {
+    lastWasCall_ = m == "call";
     IrIns i; i.m = m; i.operands = 1; i.a = IrOp::from(a);
     add(std::move(i));
 }
 
 void Optimizer::ins(const std::string &m, const Op &a, const Op &b) {
+    lastWasCall_ = m == "call";
     IrIns i; i.m = m; i.operands = 2; i.a = IrOp::from(a); i.b = IrOp::from(b);
     add(std::move(i));
 }
@@ -998,7 +1001,7 @@ void Optimizer::flush() {
         if (saved != 0) placeRestore();
     }
     if (prologueHeld_) {
-        under_->prologue(heldFrame_, heldLsda_, saved);
+        under_->prologue(heldFrame_, heldLsda_, saved, heldOutgoing_);
         prologueHeld_ = false;
     }
     replay();
@@ -1794,11 +1797,13 @@ void Optimizer::functionBegin(const std::string &name, bool exported, bool merge
 // The prologue waits for the body: which registers it must save is known only
 // once promote() has seen every local. The flush that ends the function
 // writes it, or an earlier one - a cut - with nothing saved.
-void Optimizer::prologue(int frameSize, const std::string &lsda, unsigned saved) {
+void Optimizer::prologue(int frameSize, const std::string &lsda, unsigned saved,
+                         int outgoing) {
     interrupt();
-    if (level_ < 1) { under_->prologue(frameSize, lsda, saved); return; }
+    if (level_ < 1) { under_->prologue(frameSize, lsda, saved, outgoing); return; }
     prologueHeld_ = true;
     heldFrame_ = frameSize;
+    heldOutgoing_ = outgoing;
     heldLsda_ = lsda;
 }
 void Optimizer::restoreSaved() { interrupt(); under_->restoreSaved(); }
