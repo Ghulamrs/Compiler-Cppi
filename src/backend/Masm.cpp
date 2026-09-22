@@ -891,11 +891,29 @@ void MasmCodeGen::emitClassRtti(const Program &program) {
         for (const Type *k = all[i]->base(); k != nullptr; k = k->base())
             contained++;
 
-        // **`.rdata$r`, which is where cl puts these**, and not `.data$r`.
-        o += ".rdata$r SEGMENT READONLY ALIGN(8) 'DATA'\n";
+        // **Each record is a COMDAT of its own, and PUBLIC**, which is how cl
+        // writes them (one `; COMDAT ??_R..` per section in its listing, and a
+        // PUBLIC line apiece). Written as one plain section per class instead,
+        // every translation unit that mentioned a class kept its own copy: a
+        // build of Compiler++ carried each of 58 type-name strings sixteen
+        // times, 74,870 bytes of `.rdata$r` against cl's 9,464. The linker
+        // folds these on the key symbol (SELECT_ANY) only if it can see one -
+        // a section with no COMDAT, or a symbol that is not external, gives it
+        // nothing to fold.
+        //
+        // `.rdata$r`, not `.data$rs`: cl puts the type descriptor in writable
+        // data and the other four in read-only. Ours are all read-only, which
+        // is the safer half of that choice and is not what this change is
+        // about.
+        o += "PUBLIC " + n.descriptor + "\n";
+        o += ".rdata$r SEGMENT READONLY ALIGN(8) 'DATA' COMDAT(" + n.descriptor + ")\n";
         o += n.descriptor + " DQ ??_7type_info@@6B@\n";
         o += "  DQ 0\n";
         o += "  DB '" + n.decorated + "', 00H\n";
+        o += ".rdata$r ENDS\n";
+
+        o += "PUBLIC " + n.baseDescriptor + "\n";
+        o += ".rdata$r SEGMENT READONLY ALIGN(4) 'DATA' COMDAT(" + n.baseDescriptor + ")\n";
 
         // Where this class sits inside itself: at the top, never virtual. Those
         // four numbers are constant because a class with a second base is
@@ -907,7 +925,10 @@ void MasmCodeGen::emitClassRtti(const Program &program) {
         o += "  DD 00H\n";              // vdisp
         o += "  DD 040H\n";             // attributes
         o += "  DD imagerel " + n.hierarchy + "\n";
+        o += ".rdata$r ENDS\n";
 
+        o += "PUBLIC " + n.array + "\n";
+        o += ".rdata$r SEGMENT READONLY ALIGN(4) 'DATA' COMDAT(" + n.array + ")\n";
         o += n.array + " DD imagerel " + n.baseDescriptor + "\n";
         for (const Type *k = all[i]->base(); k != nullptr; k = k->base()) {
             MicrosoftRtti b;
@@ -915,14 +936,21 @@ void MasmCodeGen::emitClassRtti(const Program &program) {
             o += "  DD imagerel " + b.baseDescriptor + "\n";
         }
         o += "  DD 00H\n";
+        o += ".rdata$r ENDS\n";
 
+        o += "PUBLIC " + n.hierarchy + "\n";
+        o += ".rdata$r SEGMENT READONLY ALIGN(4) 'DATA' COMDAT(" + n.hierarchy + ")\n";
         o += n.hierarchy + " DD 00H\n";
         o += "  DD 00H\n";              // attributes - no MI, no virtual bases
         o += "  DD 0" + std::to_string(contained + 1) + "H\n";
         o += "  DD imagerel " + n.array + "\n";
 
+        o += ".rdata$r ENDS\n";
+
         // The locator names itself, which is how the runtime recovers the image
         // base every other field is relative to.
+        o += "PUBLIC " + n.locator + "\n";
+        o += ".rdata$r SEGMENT READONLY ALIGN(4) 'DATA' COMDAT(" + n.locator + ")\n";
         o += n.locator + " DD 01H\n";
         o += "  DD 00H\n";              // the vfptr's offset in the object
         o += "  DD 00H\n";              // cdOffset

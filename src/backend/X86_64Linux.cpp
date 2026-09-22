@@ -1838,8 +1838,19 @@ void X86_64Linux::emitCoffClassRtti(const Program &program) {
         const std::string hi = a_->labelText(n.hierarchy);
         const std::string lo = a_->labelText(n.locator);
 
-        // **`.rdata$r`, which is where cl puts these**, and not `.data$r`.
-        o += "  .section .rdata$r,\"dr\"\n";
+        // **Each record is a COMDAT of its own**, as cl writes them: one
+        // `; COMDAT ??_R..` per section in its listing. Emitted as a single
+        // plain section instead, every translation unit that mentioned a class
+        // kept its own copy - a build of Compiler++ carried each of 58
+        // type-name strings sixteen times, 74,870 bytes against cl's 9,464.
+        // `discard` is IMAGE_COMDAT_SELECT_ANY, the same word functionBegin
+        // uses; the symbol must also be global, or the linker has nothing to
+        // fold one object's copy against another's.
+        //
+        // `.rdata$r`, not `.data$rs`: cl puts the type descriptor in writable
+        // data and the other four in read-only. Ours are all read-only.
+        o += "  .section .rdata$r,\"dr\",discard," + d + "\n";
+        o += "  .globl " + d + "\n";
         o += "  .p2align 3\n";
         o += d + ":\n";
         o += "  .quad \"??_7type_info@@6B@\"\n";
@@ -1847,6 +1858,8 @@ void X86_64Linux::emitCoffClassRtti(const Program &program) {
         o += "  .asciz \"" + n.decorated + "\"\n";
 
         // Where this class sits inside itself: at the top, never virtual.
+        o += "  .section .rdata$r,\"dr\",discard," + bd + "\n";
+        o += "  .globl " + bd + "\n";
         o += "  .p2align 2\n";
         o += bd + ":\n";
         o += "  .long " + d + "@IMGREL\n";
@@ -1857,6 +1870,9 @@ void X86_64Linux::emitCoffClassRtti(const Program &program) {
         o += "  .long 0x40\n";           // attributes
         o += "  .long " + hi + "@IMGREL\n";
 
+        o += "  .section .rdata$r,\"dr\",discard," + ar + "\n";
+        o += "  .globl " + ar + "\n";
+        o += "  .p2align 2\n";
         o += ar + ":\n";
         o += "  .long " + bd + "@IMGREL\n";
         for (const Type *k = all[i]->base(); k != nullptr; k = k->base()) {
@@ -1866,6 +1882,9 @@ void X86_64Linux::emitCoffClassRtti(const Program &program) {
         }
         o += "  .long 0\n";
 
+        o += "  .section .rdata$r,\"dr\",discard," + hi + "\n";
+        o += "  .globl " + hi + "\n";
+        o += "  .p2align 2\n";
         o += hi + ":\n";
         o += "  .long 0\n";
         o += "  .long 0\n";              // attributes - no MI, no virtual bases
@@ -1874,6 +1893,9 @@ void X86_64Linux::emitCoffClassRtti(const Program &program) {
 
         // The locator names itself, which is how the runtime recovers the image
         // base every other field is relative to.
+        o += "  .section .rdata$r,\"dr\",discard," + lo + "\n";
+        o += "  .globl " + lo + "\n";
+        o += "  .p2align 2\n";
         o += lo + ":\n";
         o += "  .long 1\n";
         o += "  .long 0\n";              // the vfptr's offset in the object
