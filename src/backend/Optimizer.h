@@ -162,6 +162,7 @@ private:
     std::vector<IrChunk> chunks_;
     // Whether the last chunk still takes instructions - false after a terminator.
     bool open_ = false;
+    bool alignNext_ = false;   // a loop head asked for: laid before the next label
     std::vector<IrIns> run_;
     unsigned long removed_ = 0;
     // True after a jmp or a ret with no label since: nothing reaches there.

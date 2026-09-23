@@ -633,6 +633,7 @@ void Optimizer::defLabel(const std::string &l) {
     chunks_.push_back(IrChunk());
     chunks_.back().label = l;
     chunks_.back().hasLabel = true;
+    if (alignNext_) { chunks_.back().before.push_back([this]() { under_->loopAlign(); }); alignNext_ = false; }
     open_ = true;
     unreachable_ = false;
 }
@@ -1964,7 +1965,13 @@ void Optimizer::bssSection() { interrupt(); under_->bssSection(); }
 void Optimizer::objectType(const std::string &name) { interrupt(); under_->objectType(name); }
 void Optimizer::objectSize(const std::string &name, int size) { interrupt(); under_->objectSize(name, size); }
 void Optimizer::align(int n) { interrupt(); under_->align(n); }
-void Optimizer::loopAlign() { event([this]() { under_->loopAlign(); }); }
+// **Before the label the loop jumps back to, and nowhere else.** The walker
+// asks for it and defines that label next; as an event it would join the open
+// chunk and replay ahead of the code already in it - the loop's init.
+void Optimizer::loopAlign() {
+    if (chunks_.empty()) { under_->loopAlign(); return; }
+    alignNext_ = true;
+}
 void Optimizer::zero(int n) { interrupt(); under_->zero(n); }
 void Optimizer::dataInt(int size, long long v) { interrupt(); under_->dataInt(size, v); }
 void Optimizer::dataSym(const std::string &sym, long long off) { interrupt(); under_->dataSym(sym, off); }
