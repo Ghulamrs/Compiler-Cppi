@@ -34,6 +34,7 @@
 		8DFC02EF8BB8BEBC3B7BB505 /* src/backend/Backend.cpp in Sources */ = {isa = PBXBuildFile; fileRef = F695A4615AEF2C7E2B592FA4 /* src/backend/Backend.cpp */; };
 		418BB563D7961586E3949832 /* src/backend/Dwarf.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0088B521C8C151BC38692963 /* src/backend/Dwarf.cpp */; };
 		5AA4423DC12CC570B75D795B /* src/backend/Masm.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E7B28E2D075E68C673005D97 /* src/backend/Masm.cpp */; };
+		CE6C18781A3E473F4904E422 /* src/backend/Optimizer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A5C3B60820008EF9930AF796 /* src/backend/Optimizer.cpp */; };
 		E5EE5E47CC8D9ACFAE74FBBD /* src/backend/Spelling.cpp in Sources */ = {isa = PBXBuildFile; fileRef = F4EBC0A20AB47FE63D651818 /* src/backend/Spelling.cpp */; };
 		DEF931E5D4391EBD69762626 /* src/backend/Tms6747.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E54D373630375925CD93ACB4 /* src/backend/Tms6747.cpp */; };
 		15C6897BD4BCDB17828DF981 /* src/backend/Walker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = F2DFC622596A0E3ADC7A1BFB /* src/backend/Walker.cpp */; };
@@ -69,6 +70,7 @@
 		F695A4615AEF2C7E2B592FA4 /* src/backend/Backend.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = src/backend/Backend.cpp; sourceTree = "<group>"; };
 		0088B521C8C151BC38692963 /* src/backend/Dwarf.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = src/backend/Dwarf.cpp; sourceTree = "<group>"; };
 		E7B28E2D075E68C673005D97 /* src/backend/Masm.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = src/backend/Masm.cpp; sourceTree = "<group>"; };
+		A5C3B60820008EF9930AF796 /* src/backend/Optimizer.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = src/backend/Optimizer.cpp; sourceTree = "<group>"; };
 		F4EBC0A20AB47FE63D651818 /* src/backend/Spelling.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = src/backend/Spelling.cpp; sourceTree = "<group>"; };
 		E54D373630375925CD93ACB4 /* src/backend/Tms6747.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = src/backend/Tms6747.cpp; sourceTree = "<group>"; };
 		F2DFC622596A0E3ADC7A1BFB /* src/backend/Walker.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = src/backend/Walker.cpp; sourceTree = "<group>"; };
@@ -88,6 +90,7 @@
 		416156CFEC60731CF9F7D8B9 /* src/backend/Backend.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = src/backend/Backend.h; sourceTree = "<group>"; };
 		76591D77735C36799666E7B7 /* src/backend/Dwarf.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = src/backend/Dwarf.h; sourceTree = "<group>"; };
 		DD7C169D29C6535AE40E193B /* src/backend/Masm.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = src/backend/Masm.h; sourceTree = "<group>"; };
+		F5ABF5034B206CAABCD35015 /* src/backend/Optimizer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = src/backend/Optimizer.h; sourceTree = "<group>"; };
 		F39A3702AFD89AF2955CAA08 /* src/backend/Spelling.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = src/backend/Spelling.h; sourceTree = "<group>"; };
 		6B679C7221BF4411A059BA60 /* src/backend/Tms6747.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = src/backend/Tms6747.h; sourceTree = "<group>"; };
 		8A706A0E0F8B1077FED8B280 /* src/backend/Walker.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = src/backend/Walker.h; sourceTree = "<group>"; };
@@ -147,6 +150,7 @@
 				F695A4615AEF2C7E2B592FA4 /* src/backend/Backend.cpp */,
 				0088B521C8C151BC38692963 /* src/backend/Dwarf.cpp */,
 				E7B28E2D075E68C673005D97 /* src/backend/Masm.cpp */,
+				A5C3B60820008EF9930AF796 /* src/backend/Optimizer.cpp */,
 				F4EBC0A20AB47FE63D651818 /* src/backend/Spelling.cpp */,
 				E54D373630375925CD93ACB4 /* src/backend/Tms6747.cpp */,
 				F2DFC622596A0E3ADC7A1BFB /* src/backend/Walker.cpp */,
@@ -166,6 +170,7 @@
 				416156CFEC60731CF9F7D8B9 /* src/backend/Backend.h */,
 				76591D77735C36799666E7B7 /* src/backend/Dwarf.h */,
 				DD7C169D29C6535AE40E193B /* src/backend/Masm.h */,
+				F5ABF5034B206CAABCD35015 /* src/backend/Optimizer.h */,
 				F39A3702AFD89AF2955CAA08 /* src/backend/Spelling.h */,
 				6B679C7221BF4411A059BA60 /* src/backend/Tms6747.h */,
 				8A706A0E0F8B1077FED8B280 /* src/backend/Walker.h */,
@@ -194,7 +199,7 @@
 			buildPhases = (
 				9EA4E2D1AAB9DE5CE438AE52 /* Sources */,
 				88913DB4BE431CFDF6D281EA /* Frameworks */,
-				88832AA06EAF0D5F7D705E11 /* put the finished program in RStudio's directory */,
+				88832AA06EAF0D5F7D705E11 /* put the finished program in RIDE's directory */,
 			);
 			buildRules = (
 			);
@@ -232,7 +237,7 @@
 /* End PBXProject section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		88832AA06EAF0D5F7D705E11 /* put the finished program in RStudio's directory */ = {
+		88832AA06EAF0D5F7D705E11 /* put the finished program in RIDE's directory */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -240,12 +245,12 @@
 			);
 			inputPaths = (
 			);
-			name = "put the finished program in RStudio's directory";
+			name = "put the finished program in RIDE's directory";
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\ndest=\"$SRCROOT/../../RStudio\"\nmkdir -p \"$dest\"\ncp -f \"$BUILT_PRODUCTS_DIR/$PRODUCT_NAME\" \"$dest/.$PRODUCT_NAME.new\"\nmv -f \"$dest/.$PRODUCT_NAME.new\" \"$dest/$PRODUCT_NAME\"\ncodesign --force --sign - \"$dest/$PRODUCT_NAME\"\n";
+			shellScript = "set -e\ndest=\"$SRCROOT/../../RIDE\"\nmkdir -p \"$dest\"\ncp -f \"$BUILT_PRODUCTS_DIR/$PRODUCT_NAME\" \"$dest/.$PRODUCT_NAME.new\"\nmv -f \"$dest/.$PRODUCT_NAME.new\" \"$dest/$PRODUCT_NAME\"\ncodesign --force --sign - \"$dest/$PRODUCT_NAME\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -281,6 +286,7 @@
 				8DFC02EF8BB8BEBC3B7BB505 /* src/backend/Backend.cpp in Sources */,
 				418BB563D7961586E3949832 /* src/backend/Dwarf.cpp in Sources */,
 				5AA4423DC12CC570B75D795B /* src/backend/Masm.cpp in Sources */,
+				CE6C18781A3E473F4904E422 /* src/backend/Optimizer.cpp in Sources */,
 				E5EE5E47CC8D9ACFAE74FBBD /* src/backend/Spelling.cpp in Sources */,
 				DEF931E5D4391EBD69762626 /* src/backend/Tms6747.cpp in Sources */,
 				15C6897BD4BCDB17828DF981 /* src/backend/Walker.cpp in Sources */,
@@ -296,15 +302,15 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				OBJROOT = "$(TMPDIR)/rstudio-xcode";
-				SYMROOT = "$(TMPDIR)/rstudio-xcode";
+				OBJROOT = "$(TMPDIR)/ride-xcode";
+				SYMROOT = "$(TMPDIR)/ride-xcode";
 				CLANG_CXX_LANGUAGE_STANDARD = "c++14";
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CLANG_WARN_IMPLICIT_SIGN_CONVERSION = NO;
 				CODE_SIGN_STYLE = Automatic;
 				GCC_TREAT_WARNINGS_AS_ERRORS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = NO;
-				MACOSX_DEPLOYMENT_TARGET = 10.15;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				PRODUCT_NAME = cxx1i.exe;
 				SDKROOT = macosx;
 				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/src";
@@ -323,15 +329,15 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				OBJROOT = "$(TMPDIR)/rstudio-xcode";
-				SYMROOT = "$(TMPDIR)/rstudio-xcode";
+				OBJROOT = "$(TMPDIR)/ride-xcode";
+				SYMROOT = "$(TMPDIR)/ride-xcode";
 				CLANG_CXX_LANGUAGE_STANDARD = "c++14";
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CLANG_WARN_IMPLICIT_SIGN_CONVERSION = NO;
 				CODE_SIGN_STYLE = Automatic;
 				GCC_TREAT_WARNINGS_AS_ERRORS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = NO;
-				MACOSX_DEPLOYMENT_TARGET = 10.15;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				PRODUCT_NAME = cxx1i.exe;
 				SDKROOT = macosx;
 				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/src";
@@ -350,15 +356,15 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				OBJROOT = "$(TMPDIR)/rstudio-xcode";
-				SYMROOT = "$(TMPDIR)/rstudio-xcode";
+				OBJROOT = "$(TMPDIR)/ride-xcode";
+				SYMROOT = "$(TMPDIR)/ride-xcode";
 				CLANG_CXX_LANGUAGE_STANDARD = "c++14";
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CLANG_WARN_IMPLICIT_SIGN_CONVERSION = NO;
 				CODE_SIGN_STYLE = Automatic;
 				GCC_TREAT_WARNINGS_AS_ERRORS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = NO;
-				MACOSX_DEPLOYMENT_TARGET = 10.15;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				PRODUCT_NAME = cxx1i.exe;
 				SDKROOT = macosx;
 				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/src";
@@ -377,15 +383,15 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				OBJROOT = "$(TMPDIR)/rstudio-xcode";
-				SYMROOT = "$(TMPDIR)/rstudio-xcode";
+				OBJROOT = "$(TMPDIR)/ride-xcode";
+				SYMROOT = "$(TMPDIR)/ride-xcode";
 				CLANG_CXX_LANGUAGE_STANDARD = "c++14";
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CLANG_WARN_IMPLICIT_SIGN_CONVERSION = NO;
 				CODE_SIGN_STYLE = Automatic;
 				GCC_TREAT_WARNINGS_AS_ERRORS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = NO;
-				MACOSX_DEPLOYMENT_TARGET = 10.15;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				PRODUCT_NAME = cxx1i.exe;
 				SDKROOT = macosx;
 				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/src";
