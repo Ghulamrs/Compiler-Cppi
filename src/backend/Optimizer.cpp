@@ -895,12 +895,18 @@ unsigned Optimizer::promote() {
     std::sort(best.begin(), best.end());
     std::reverse(best.begin(), best.end());
 
-    // **Here is where the levels part**, as cl's /Os and /Ot do: a register
-    // costs a save and a restore every call pays, an access converted saves
-    // three or four bytes. -O2 takes five for speed, -O1 two and four uses up.
+    // **The same at both levels, and that was measured, not assumed.** A
+    // register costs a save and a restore that every call pays, on every
+    // path; the count credits a use on any path, and it includes the
+    // parameter's home store, so a slot of one or two uses gains nothing.
+    // -O2 once took five registers from one use up: on Compiler++ that ran
+    // 1,582 ms against 1,483 for two from four uses up, and lost to -O1 -
+    // a program of small hot functions calls far more than it loops. Five
+    // won only a kernel with six live scalars (136 against 155 ms). A
+    // bigger budget wants uses weighted by loop depth first.
     static const int kHome[] = { 1, 12, 13, 14, 15 };
-    const std::size_t most = level_ >= 2 ? 5u : 2u;
-    const long least = level_ >= 2 ? 1 : 4;
+    const std::size_t most = 2;
+    const long least = 4;
     std::map<long long, int> home;
     unsigned saved = 0;
     for (std::size_t i = 0; i < best.size() && i < most; i++) {
