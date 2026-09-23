@@ -1,5 +1,7 @@
 #include "Optimizer.h"
 
+#include <cassert>
+
 #include <cstring>
 #include <algorithm>
 #include <map>
@@ -595,6 +597,13 @@ IrChunk &Optimizer::chunk() {
 }
 
 void Optimizer::add(IrIns &&i) {
+    if (inlineBase_ > 0)
+        for (IrOp *o : {&i.a, &i.b})
+            if (o->kind == Op::Mem && o->text == "%rbp") {
+                assert(o->disp < 0 && "an inlined callee reads only its own frame");
+                o->disp -= inlineBase_;
+                o->hasDisp = true;
+            }
     // Nothing reaches here: the last chunk ended in a jump or a return and no
     // label has been defined since.
     if (unreachable_ && level_ >= 1) {

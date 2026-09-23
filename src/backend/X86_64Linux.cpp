@@ -1290,19 +1290,25 @@ void X86_64Linux::visit(const Call &n) {
      *  build of Compiler++, two bytes and an instruction each, for nothing.
      *  A variadic System V call still sets it when the count is zero: the
      *  callee reads AL, and reading an untouched register is not the same. */
-    if (n.isVariadic() && abi_.variadicSseCountInAl)
-        a_->ins("mov", imm(sses), reg("%rax"));
+    const Function *inlined = inPlace_ ? nullptr : inlineTarget(n);
+    if (inlined != nullptr) {
+        walkInPlace(*inlined);
+    } else {
+        if (n.isVariadic() && abi_.variadicSseCountInAl)
+            a_->ins("mov", imm(sses), reg("%rax"));
 
-    if (!inArea && shadowSlots > 0) {
-        a_->ins("sub", imm(abi_.shadowBytes), reg("%rsp"));
-        depth_ += shadowSlots;
+        if (!inArea && shadowSlots > 0) {
+            a_->ins("sub", imm(abi_.shadowBytes), reg("%rsp"));
+            depth_ += shadowSlots;
+        }
+
+        if (n.callee() != nullptr) a_->ins("call", ind("%r11"));
+        else                       a_->ins("call", lbl(n.symbol()));
     }
 
-    if (n.callee() != nullptr) a_->ins("call", ind("%r11"));
-    else                       a_->ins("call", lbl(n.symbol()));
-
     if (busyHere) areaBusy_--;
-    int unwind = inArea ? 0 : stackSlots + padSlots + shadowSlots;
+    // A callee walked in place took no shadow space.
+    int unwind = inArea ? 0 : stackSlots + padSlots + (inlined != nullptr ? 0 : shadowSlots);
     if (unwind > 0) {
         a_->ins("add", imm(unwind * 8), reg("%rsp"));
         depth_ -= unwind;
@@ -1578,94 +1584,71 @@ void X86_64Linux::finishChunk() {
     out_.clear();
 }
 
-void X86_64Linux::emit(const Function &fn) {
-    depth_ = 0;
-    resetLabels();
-    // Labels are built from the symbol rather than the name: two overloads
-    // share a name and must not share a label.
-    labelPrefix_ = ".L." + fn.symbol() + ".";
-    returnLabel_ = ".L.return." + fn.symbol();
+namespace {
 
-    a_->functionBegin(fn.symbol(), !fn.isStatic(), fn.isInline());
-    if (fn.isInline()) a_->weakDefinition(fn.symbol());
-    // A second name for the same code - see Function::alias. Emitted as a
-    // label at the same address, which is what makes it the same function
-    // rather than a second copy of it.
-    if (!fn.alias().empty()) {
-        if (!fn.isStatic()) a_->globl(fn.alias());
-        if (fn.isInline()) a_->weakDefinition(fn.alias());
-        a_->defLabel(fn.alias());
+// **Small enough to walk in place**: straight-line statements and ifs, no
+// loops and no cleanups; anything else counts as too many.
+int statementsIn(const Stmt &s) {
+    constexpr int kTooMany = 1000;
+    if (const Block *b = dynamic_cast<const Block *>(&s)) {
+        if (b->unwindCleanup()) return kTooMany;
+        int n = 0;
+        for (const StmtPtr &x : b->body()) n += statementsIn(*x);
+        return n;
     }
-    if (const Source *src = lineSource()) {
-        Source::Place at = src->locate(fn.pos());
-        DwarfFunction d;
-        d.name = fn.name();
-        d.begin = ".Lfunc.begin." + fn.symbol();
-        d.end = ".Lfunc.end." + fn.symbol();
-        d.file = at.file + 1;
-        d.line = at.line;
-        d.external = !fn.isStatic();
-        d.returns = fn.returns();
-        d.locals = &fn.locals();
-        dwarfFns_.push_back(d);
-        resetBlocks(fn.blocks());
-        a_->defLabel(d.begin);
-    } else if (fn.hasLandingPads() && !usesFunclets()) {
-        // The call-site table measures from here, whether or not there is
-        // debug information. A funclet target has no call-site table and no
-        // use for the label - and MASM will not take one shaped like this.
-        a_->defLabel(".Lfunc.begin." + fn.symbol());
-    }
-    clearCallSites();
-    clearMsTries();
+    if (dynamic_cast<const ExprStmt *>(&s) || dynamic_cast<const Return *>(&s)) return 1;
+    if (const If *i = dynamic_cast<const If *>(&s))
+        return 1 + statementsIn(i->thenArm()) + (i->elseArm() ? statementsIn(*i->elseArm()) : 0);
+    return kTooMany;
+}
 
-    // **The outgoing area, sized as the widest call in the body** and allocated
-    // by the prologue below everything else. A leaf function has none, nor a
-    // System V function whose calls all fit in registers: nothing changes there.
-    {
-        CallScan scan;
-        fn.body().accept(scan);
-        outgoing_ = 0;
-        for (const Call *c : scan.calls)
-            outgoing_ = std::max(outgoing_, outgoingBytes(*c));
-        outgoing_ = (outgoing_ + 15) & ~15;
-    }
-    areaBusy_ = 0;
-    funcletDepth_ = 0;
-    // The frame the tables describe is the whole allocation, area included.
-    frameSize_ = fn.frameSize() + outgoing_;
-    fnSymbol_ = fn.symbol();
-    fnMergeable_ = fn.isInline();
-    markLine(fn.pos());
-    a_->prologue(fn.frameSize(),
-                 fn.hasLandingPads() ? ".Lexception." + fn.symbol()
-                                     : std::string(), 0, outgoing_);
+}
 
-    // The definition side of the same rule: for a member function on the
-    // Microsoft ABI the hidden return pointer arrives in the *second* integer
-    // register, `this` having taken the first.
+// **A direct call to a small function of this file, walked in its place at
+// -O2**: one that takes nothing on the stack, and is not the caller itself.
+// The same answer before the prologue, where the frame is sized, and at the call.
+const Function *X86_64Linux::inlineTarget(const Call &n) const {
+    if (level_ < 2 || lineSource() || current_ == nullptr || n.callee() != nullptr ||
+        n.isVariadic() || outgoingBytes(n) != abi_.shadowBytes)
+        return nullptr;
+    const auto it = bodies_.find(n.symbol());
+    if (it == bodies_.end() || it->second == current_) return nullptr;
+    const Function &fn = *it->second;
+    const bool small = !fn.hasLandingPads() && !fn.isVariadic() && fn.regSaveSlot() == 0 &&
+                       statementsIn(fn.body()) <= 8;
+    return small ? &fn : nullptr;
+}
+
+// **The callee's walk borrows the caller's per-function state and gives it
+// back.** Its frame goes below the caller's locals - the optimizer moves every
+// slot it names down by that much - and it runs at the call's own stack depth.
+void X86_64Linux::walkInPlace(const Function &fn) {
+    const int sret = sretSlot_, regSave = regSave_;
+    const int gp = varGp_, fp = varFp_, overflow = varOverflow_;
+    const std::string ret = returnLabel_;
+    returnLabel_ = label("inline", nextLabel());
+    inPlace_ = true;
+    opt_.inlineBegin(current_->frameSize());
+    receiveParameters(fn);
+    walkBody(fn);
+    opt_.inlineEnd();
+    inPlace_ = false;
+    sretSlot_ = sret;
+    regSave_ = regSave;
+    varGp_ = gp;
+    varFp_ = fp;
+    varOverflow_ = overflow;
+    returnLabel_ = ret;
+}
+
+// **Parameters into their slots**, for a function emitted whole or walked in place.
+void X86_64Linux::receiveParameters(const Function &fn) {
     sretSlot_ = fn.sretSlot();
     const bool msThisFirst = sretSlot_ != 0 && abi_.positional && fn.hasThis();
     if (sretSlot_ != 0)
         a_->ins("mov", reg(abi_.intRegs[msThisFirst ? 1 : 0]), local(sretSlot_));
 
     // A struct of two eightbytes comes back in rax:rdx; nothing else reads rdx at the ret.
-    opt_.returnUsesRdx(sretSlot_ == 0 && fn.returns()->isStructOrUnion() &&
-                       fn.returns()->size(target_) > 8);
-
-    // **The locals a register could stand in for**: whole scalars by the
-    // displacement the walker addresses them at, never a `volatile` one and
-    // never a reference, whose slot is the pointer it is reached through.
-    std::vector<std::pair<long long, int> > scalars;
-    for (const Local &l : fn.locals()) {
-        if (!l.staticName.empty() || l.isVolatile || l.type == nullptr) continue;
-        if (l.type->isReference() || !(l.type->isInteger() || l.type->isPointer())) continue;
-        const int w = l.type->size(target_);
-        if (w != 1 && w != 2 && w != 4 && w != 8) continue;
-        scalars.push_back(std::make_pair(static_cast<long long>(-l.offset), w));
-    }
-    opt_.frameScalars(scalars);
-
     regSave_ = fn.regSaveSlot();
     if (fn.isVariadic() && abi_.positional) {
         for (int i = 0; i < abi_.intCount; i++)
@@ -1763,6 +1746,12 @@ void X86_64Linux::emit(const Function &fn) {
     varOverflow_ = abi_.positional ? 16 + plan.intsUsed * 8
                                    : stackBase + plan.stackWords * 8;
 
+}
+
+// The body, the value a function falling off its end returns, and the label
+// every `return` in it jumps to.
+void X86_64Linux::walkBody(const Function &fn) {
+    const std::vector<Param> &ps = fn.params();
     fn.body().accept(*this);
 
     if (sretSlot_ != 0)                     a_->ins("mov", local(sretSlot_), reg("%rax"));
@@ -1778,6 +1767,106 @@ void X86_64Linux::emit(const Function &fn) {
          fn.symbol().compare(0, 4, "??_G") == 0 ||
          fn.symbol().compare(0, 4, "??_E") == 0))
         a_->ins("mov", local(ps[0].offset), reg("%rax"));
+}
+
+void X86_64Linux::emit(const Function &fn) {
+    depth_ = 0;
+    resetLabels();
+    // Labels are built from the symbol rather than the name: two overloads
+    // share a name and must not share a label.
+    labelPrefix_ = ".L." + fn.symbol() + ".";
+    returnLabel_ = ".L.return." + fn.symbol();
+
+    a_->functionBegin(fn.symbol(), !fn.isStatic(), fn.isInline());
+    if (fn.isInline()) a_->weakDefinition(fn.symbol());
+    // A second name for the same code - see Function::alias. Emitted as a
+    // label at the same address, which is what makes it the same function
+    // rather than a second copy of it.
+    if (!fn.alias().empty()) {
+        if (!fn.isStatic()) a_->globl(fn.alias());
+        if (fn.isInline()) a_->weakDefinition(fn.alias());
+        a_->defLabel(fn.alias());
+    }
+    if (const Source *src = lineSource()) {
+        Source::Place at = src->locate(fn.pos());
+        DwarfFunction d;
+        d.name = fn.name();
+        d.begin = ".Lfunc.begin." + fn.symbol();
+        d.end = ".Lfunc.end." + fn.symbol();
+        d.file = at.file + 1;
+        d.line = at.line;
+        d.external = !fn.isStatic();
+        d.returns = fn.returns();
+        d.locals = &fn.locals();
+        dwarfFns_.push_back(d);
+        resetBlocks(fn.blocks());
+        a_->defLabel(d.begin);
+    } else if (fn.hasLandingPads() && !usesFunclets()) {
+        // The call-site table measures from here, whether or not there is
+        // debug information. A funclet target has no call-site table and no
+        // use for the label - and MASM will not take one shaped like this.
+        a_->defLabel(".Lfunc.begin." + fn.symbol());
+    }
+    clearCallSites();
+    clearMsTries();
+
+    // **A callee walked in place of its call is known here, before the
+    // prologue**: its frame goes below this one's locals and its own calls
+    // count toward the outgoing area, so the frame is right from the start.
+    current_ = &fn;
+    inlineRegion_ = 0;
+
+    // **The outgoing area, sized as the widest call in the body** and allocated
+    // by the prologue below everything else. A leaf function has none, nor a
+    // System V function whose calls all fit in registers: nothing changes there.
+    {
+        CallScan scan;
+        fn.body().accept(scan);
+        outgoing_ = 0;
+        for (const Call *c : scan.calls) {
+            outgoing_ = std::max(outgoing_, outgoingBytes(*c));
+            const Function *callee = inlineTarget(*c);
+            if (callee == nullptr) continue;
+            inlineRegion_ = std::max(inlineRegion_, (callee->frameSize() + 15) & ~15);
+            CallScan inner;
+            callee->body().accept(inner);
+            for (const Call *ic : inner.calls) outgoing_ = std::max(outgoing_, outgoingBytes(*ic));
+        }
+        outgoing_ = (outgoing_ + 15) & ~15;
+    }
+    areaBusy_ = 0;
+    funcletDepth_ = 0;
+    // The frame the tables describe is the whole allocation, area included.
+    frameSize_ = fn.frameSize() + inlineRegion_ + outgoing_;
+    fnSymbol_ = fn.symbol();
+    fnMergeable_ = fn.isInline();
+    markLine(fn.pos());
+    a_->prologue(fn.frameSize() + inlineRegion_,
+                 fn.hasLandingPads() ? ".Lexception." + fn.symbol()
+                                     : std::string(), 0, outgoing_);
+
+    // The definition side of the same rule: for a member function on the
+    // Microsoft ABI the hidden return pointer arrives in the *second* integer
+    // register, `this` having taken the first.
+    opt_.returnUsesRdx(sretSlot_ == 0 && fn.returns()->isStructOrUnion() &&
+                       fn.returns()->size(target_) > 8);
+
+    // **The locals a register could stand in for**: whole scalars by the
+    // displacement the walker addresses them at, never a `volatile` one and
+    // never a reference, whose slot is the pointer it is reached through.
+    std::vector<std::pair<long long, int> > scalars;
+    for (const Local &l : fn.locals()) {
+        if (!l.staticName.empty() || l.isVolatile || l.type == nullptr) continue;
+        if (l.type->isReference() || !(l.type->isInteger() || l.type->isPointer())) continue;
+        const int w = l.type->size(target_);
+        if (w != 1 && w != 2 && w != 4 && w != 8) continue;
+        scalars.push_back(std::make_pair(static_cast<long long>(-l.offset), w));
+    }
+    opt_.frameScalars(scalars);
+
+    receiveParameters(fn);
+
+    walkBody(fn);
     // **rsp is restored *from rbp*, never by adding to itself.** Resuming after a
     // catch it holds whatever the runtime left, and adding the frame size landed
     // on the unwind-help slot, so `ret` took -2. The renderer adds the size.
@@ -2292,6 +2381,7 @@ void X86_64Linux::run(const Program &program) {
 
     emitData(program);
     finishChunk();
+    for (const Function &fn : program.functions) bodies_[fn.symbol()] = &fn;
     for (const Function &fn : program.functions) emit(fn);
     if (!program.initFunction.empty()) {
         a_->initialiserEntry(program.initFunction, program.usesDsoHandle);

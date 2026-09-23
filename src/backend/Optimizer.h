@@ -118,6 +118,11 @@ public:
     void returnUsesRdx(bool yes) { rdxLive_ = yes; }
     // The body is complete: the next flush sees all of it and may promote.
     void endOfBody() { ending_ = true; }
+    // **A callee walked in place keeps its frame below the caller's locals**:
+    // between these two, every slot an instruction names moves down by `base`.
+    // The region is shared by every site, so no slot in it is promote()'s.
+    void inlineBegin(int base) { inlineBase_ = base; }
+    void inlineEnd() { inlineBase_ = 0; }
     // The function's scalar locals by frame displacement and width - promote()'s candidates.
     void frameScalars(const std::vector<std::pair<long long, int> > &s) { scalars_ = s; }
 
@@ -171,6 +176,7 @@ private:
     unsigned initLive_ = 0;
     bool initFlags_ = false;
     bool callReadsAccumulator_ = true;
+    int inlineBase_ = 0;
     bool rdxLive_ = true;
     std::vector<std::pair<long long, int> > scalars_;
     // The prologue, held until the body is known so the saves can be named.

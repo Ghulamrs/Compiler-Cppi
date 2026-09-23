@@ -7,6 +7,7 @@
 #include "Walker.h"
 
 #include <iosfwd>
+#include <map>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -191,6 +192,15 @@ private:
     int varGp_ = 0, varFp_ = 48, varOverflow_ = 16;
 
     void emit(const Function &fn);
+    void receiveParameters(const Function &fn);
+    void walkBody(const Function &fn);
+    // Inline expansion at -O2 - see inlineTarget.
+    const Function *inlineTarget(const Call &n) const;
+    void walkInPlace(const Function &fn);
+    std::map<std::string, const Function *> bodies_;
+    const Function *current_ = nullptr;
+    bool inPlace_ = false;
+    int inlineRegion_ = 0;
     void finishChunk();
     std::string label(const char *kind, int id) const override;
     std::string userLabel(const std::string &name) const override;
