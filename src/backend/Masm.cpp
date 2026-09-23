@@ -1,3 +1,4 @@
+#include "../Name.h"
 #include "Masm.h"
 
 #include "../Mangle.h"
@@ -11,7 +12,7 @@
 namespace {
 
 [[noreturn]] void give_up(const std::string &what, const std::string &why) {
-    std::fprintf(stderr, "cxx1: masm: %s\n  for: %s\n", why.c_str(),
+    std::fprintf(stderr, "%s: masm: %s\n  for: %s\n", program::kName, why.c_str(),
                  what.c_str());
     std::exit(1);
 }
@@ -899,20 +900,9 @@ void MasmCodeGen::emitClassRtti(const Program &program) {
         for (const Type *k = all[i]->base(); k != nullptr; k = k->base())
             contained++;
 
-        // **Each record is a COMDAT of its own, and PUBLIC**, which is how cl
-        // writes them (one `; COMDAT ??_R..` per section in its listing, and a
-        // PUBLIC line apiece). Written as one plain section per class instead,
-        // every translation unit that mentioned a class kept its own copy: a
-        // build of Compiler++ carried each of 58 type-name strings sixteen
-        // times, 74,870 bytes of `.rdata$r` against cl's 9,464. The linker
-        // folds these on the key symbol (SELECT_ANY) only if it can see one -
-        // a section with no COMDAT, or a symbol that is not external, gives it
-        // nothing to fold.
-        //
-        // `.rdata$r`, not `.data$rs`: cl puts the type descriptor in writable
-        // data and the other four in read-only. Ours are all read-only, which
-        // is the safer half of that choice and is not what this change is
-        // about.
+        // **Each record is a COMDAT of its own, and PUBLIC**, as cl writes them, so
+        // the linker folds every unit's copy on its key: one plain section per class
+        // kept 58 type names sixteen times, 74,870 bytes against cl's 9,464 (.rdata$r).
         o += "PUBLIC " + n.descriptor + "\n";
         o += ".rdata$r SEGMENT READONLY ALIGN(8) 'DATA' COMDAT(" + n.descriptor + ")\n";
         o += n.descriptor + " DQ ??_7type_info@@6B@\n";

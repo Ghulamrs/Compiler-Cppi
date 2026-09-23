@@ -1992,17 +1992,9 @@ void X86_64Linux::emitCoffClassRtti(const Program &program) {
         const std::string hi = a_->labelText(n.hierarchy);
         const std::string lo = a_->labelText(n.locator);
 
-        // **Each record is a COMDAT of its own**, as cl writes them: one
-        // `; COMDAT ??_R..` per section in its listing. Emitted as a single
-        // plain section instead, every translation unit that mentioned a class
-        // kept its own copy - a build of Compiler++ carried each of 58
-        // type-name strings sixteen times, 74,870 bytes against cl's 9,464.
-        // `discard` is IMAGE_COMDAT_SELECT_ANY, the same word functionBegin
-        // uses; the symbol must also be global, or the linker has nothing to
-        // fold one object's copy against another's.
-        //
-        // `.rdata$r`, not `.data$rs`: cl puts the type descriptor in writable
-        // data and the other four in read-only. Ours are all read-only.
+        // **Each record is a COMDAT of its own**, as cl writes them, so the linker
+        // folds every unit's copy: `discard` is SELECT_ANY, and the symbol must be
+        // global. `.rdata$r` for all five, where cl makes the descriptor writable.
         o += "  .section .rdata$r,\"dr\",discard," + d + "\n";
         o += "  .globl " + d + "\n";
         o += "  .p2align 3\n";

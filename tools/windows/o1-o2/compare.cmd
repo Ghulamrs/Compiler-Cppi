@@ -15,6 +15,6 @@ set "GITBASH=C:\Program Files\Git\bin\bash.exe"
 if errorlevel 1 ( echo compare: vcvars64.bat failed & exit /b 1 )
 call %ROOT%\msvc\build.cmd
 if errorlevel 1 exit /b 1
-set CXX1_AS=C:\masm-tests\build\asm-win.exe
+set CPP11_AS=C:\masm-tests\build\asm-win.exe
 "%GITBASH%" -c "sh $(cygpath -u '%ROOT%')/tools/windows/o1-o2/compare.sh '%ROOT%'" < NUL
 exit /b %errorlevel%
