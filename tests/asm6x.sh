@@ -1,7 +1,7 @@
 #!/bin/sh
 # The tms6747 target through asm6x, the project's own C6000 assembler: every
 # case tests/tms6747.sh would compile is taken to a TI object by the driver
-# itself (`cxx1i -arch tms6747 -c`, which runs asm6x on what it wrote), and
+# itself (`cpp11 -arch tms6747 -c`, which runs asm6x on what it wrote), and
 # that object must be the one asm6x writes for the same assembly by hand -
 # every table of it, the file symbol aside, which names the temporary. What
 # this checks is the driver's path to the assembler, on any host; that asm6x's
@@ -12,7 +12,7 @@
 #                                          build beside this tree, else one on PATH
 set -u
 cd "$(dirname "$0")/.."
-CXX1="${CXX1:-./cxx1i.exe}"
+CXX1="${CXX1:-./cpp11.exe}"
 ASM6X="${ASM6X:-}"
 if [ -z "$ASM6X" ]; then
     for c in ../../ASM6x/build/asm6x.exe "$HOME/asm6x-build/asm6x.exe" "$(command -v asm6x 2>/dev/null)"; do
@@ -34,7 +34,7 @@ for src in tests/cases/*.cpp; do
     if [ -f "tests/cases/$base.notarget" ] && grep -q "^tms6747[[:space:]]" "tests/cases/$base.notarget"; then
         skip=$((skip + 1)); continue
     fi
-    if ! ( ulimit -t 20; CXX1_AS="$ASM6X" "$CXX1" -arch tms6747 -nologo -c "$src" -o "$OUT/$base.obj" < /dev/null ) 2>"$OUT/$base.err"; then
+    if ! ( ulimit -t 20; CPP11_AS="$ASM6X" "$CXX1" -arch tms6747 -nologo -c "$src" -o "$OUT/$base.obj" < /dev/null ) 2>"$OUT/$base.err"; then
         echo "FAIL $base: the driver did not make an object"
         sed 's/^/      /' "$OUT/$base.err" | head -3
         fail=$((fail + 1)); continue

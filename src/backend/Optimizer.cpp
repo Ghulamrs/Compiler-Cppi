@@ -895,15 +895,9 @@ unsigned Optimizer::promote() {
     std::sort(best.begin(), best.end());
     std::reverse(best.begin(), best.end());
 
-    // **The same at both levels, and that was measured, not assumed.** A
-    // register costs a save and a restore that every call pays, on every
-    // path; the count credits a use on any path, and it includes the
-    // parameter's home store, so a slot of one or two uses gains nothing.
-    // -O2 once took five registers from one use up: on Compiler++ that ran
-    // 1,582 ms against 1,483 for two from four uses up, and lost to -O1 -
-    // a program of small hot functions calls far more than it loops. Five
-    // won only a kernel with six live scalars (136 against 155 ms). A
-    // bigger budget wants uses weighted by loop depth first.
+    // **The same at both levels, measured:** a register costs a save and a restore
+    // on every call, and two from four uses beat five from one on Compiler++
+    // (1,483 against 1,582 ms). A bigger budget wants uses weighted by loop depth.
     static const int kHome[] = { 1, 12, 13, 14, 15 };
     const std::size_t most = 2;
     const long least = 4;
@@ -1205,17 +1199,9 @@ bool Optimizer::dropExtensions() {
     return changed;
 }
 
-// **`add $N,%rD` in front of a use of `(%rD)`** belongs in the displacement:
-// `add rax,113 ; movsx rax, BYTE PTR [rax]` is `movsx rax, BYTE PTR [rax+113]`.
-// The walker writes the add because it computes an address a field at a time -
-// a base loaded, an offset added, the access made - where cl writes the access
-// alone. Fable measured 4,616 of the narrow form in one build of Compiler++
-// and `add` 28,341 times against cl's 7,040.
-//
-// Two things have to be dead, and both are easy to miss. The **flags**, since
-// add writes them and the fold deletes that write. And **%rD's raised value**:
-// after the fold %rD still holds what it held before the add, so the use must
-// either overwrite it or be the last reader.
+// **`add $N,%rD` in front of a use of `(%rD)`** folds into the displacement, as
+// cl writes the access alone. The flags must be dead, since the fold deletes the
+// add's write; and %rD's raised value, which the use overwrites or reads last.
 bool Optimizer::foldAddIntoAddress() {
     bool changed = false;
     for (std::size_t i = 0; i + 1 < run_.size(); i++) {
@@ -1250,12 +1236,9 @@ bool Optimizer::foldAddIntoAddress() {
         mo->disp = d;
         mo->hasDisp = d != 0;
         const IrSem t = describe(x);
-        // **Not fuseLeas's test, and the difference matters.** There the base
-        // register vanishes from the instruction, so any remaining use of it
-        // forbids the fold. Here the base stays and only the displacement
-        // moves, so the instruction still reads %rD - and should. What must
-        // not survive is %rD's *raised* value: the use has to overwrite it or
-        // be the last reader.
+        // **Not fuseLeas's test:** there the base register vanishes, here only the
+        // displacement moves, so the use still reads %rD; what must not survive is
+        // %rD's *raised* value - the use overwrites it or is its last reader.
         const bool dead = (t.def & bit(r)) != 0 || (liveOut_[i + 1] & bit(r)) == 0;
         if (t.cls == IrSem::Unknown || !dead) {
             *mo = saved;
@@ -1270,15 +1253,9 @@ bool Optimizer::foldAddIntoAddress() {
     return changed;
 }
 
-// **`mov %rB,%rD ; add $N,%rD` is `lea N(%rB),%rD`**, and spelled that way
-// fuseLeas can go on to put the address inside the instruction that uses it -
-// which is the whole point. The walker writes the pair because it computes a
-// base into a register and then adds the field's offset; cl writes the access
-// itself, `cmp BYTE PTR [rcx+113], bl` where this wrote three instructions.
-//
-// **The add's flags must be dead**, because lea sets none. That is the only
-// thing the rewrite changes about the machine's state, and the one thing a
-// reader would not think to check.
+// **`mov %rB,%rD ; add $N,%rD` is `lea N(%rB),%rD`**, which fuseLeas can then
+// put inside the instruction that uses it, where cl writes the access itself.
+// The add's flags must be dead: lea sets none, and that is all it changes.
 bool Optimizer::fuseAddToLea() {
     bool changed = false;
     for (std::size_t i = 0; i + 1 < run_.size(); i++) {
@@ -1299,8 +1276,7 @@ bool Optimizer::fuseAddToLea() {
                                  : static_cast<long long>(a.a.uimm);
         if (n > 0x7fffffffLL || n < -0x80000000LL) continue;
 
-        // rsp and rbp are the frame; sinkFrameLeas has its own rules for those
-        // and this pass must not write a lea underneath it.
+        // rsp and rbp are the frame, and sinkFrameLeas's to rewrite.
         if (rb == kRsp) continue;
 
         // The source register's name becomes the address's base; nothing else
@@ -1834,15 +1810,9 @@ void Optimizer::shorten() {
         if (x.dead) continue;
         x.semValid = false;
 
-        // **`cmp $0,%r` is `test %r,%r`**, a byte shorter and the same flags:
-        // both leave CF and OF clear and take ZF, SF and PF from the value, so
-        // every condition reading them reads the same thing. cl writes `test`;
-        // this wrote `cmp` 3,334 times in a build of Compiler++ against cl's
-        // three. The instruction stays where it is, so nothing about liveness
-        // or the flags' reach changes - only its spelling.
-        // The walker writes this zero both ways - `imm(0)` at one site and
-        // `immText("0")` at four - so both spellings have to be recognised or
-        // the rewrite fires on a fifth of what it should.
+        // **`cmp $0,%r` is `test %r,%r`**: a byte shorter, the same flags. The walker
+        // spells that zero both ways - `imm(0)` at one site, `immText("0")` at four -
+        // so both are recognised, or the rewrite fires on a fifth of what it should.
         const bool zeroImm = x.a.kind == Op::Imm &&
             ((x.a.immNumeric && !x.a.immNeg && x.a.uimm == 0) ||
              (!x.a.immNumeric && x.a.text == "0"));

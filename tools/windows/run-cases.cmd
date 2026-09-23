@@ -17,7 +17,7 @@ rem  two boxes proved - except where it does not: `throw`, `try` and a class
 rem  with a destructor are refused *only* for x86_64-windows, and until this
 rem  loop existed no box checked those at all.
 rem
-rem  CXX1_CASES_FLAGS, if set, goes on every compile - `-masm=masm` with CXX1_AS
+rem  CXX1_CASES_FLAGS, if set, goes on every compile - `-masm=masm` with CPP11_AS
 rem  naming the project's own assembler puts the whole suite through it instead
 rem  of clang, which is how that assembler's COMDAT was proven.
 setlocal enabledelayedexpansion

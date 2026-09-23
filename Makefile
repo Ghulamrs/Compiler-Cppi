@@ -94,7 +94,10 @@ BINDIR  ?= .
 # cxx1.exe on every machine, not only Windows. The programs in this family -
 # RStudio, cc1, shc and this one - carry one name each wherever they are, and a
 # suffix that changes by platform is one more thing a script has to know.
-TARGET   = $(BINDIR)/cxx1i.exe
+# The program's name, once - src/Name.h and the project files RIDE's
+# tools/make-projects.py writes spell it the same.
+PROGRAM  = cpp11
+TARGET   = $(BINDIR)/$(PROGRAM).exe
 
 .PHONY: all test golden corpus open comments clean help
 
@@ -125,8 +128,8 @@ $(OBJDIR)/%.o: src/%.cpp
 # checks all three backends on any machine. Neither is a differential suite
 # yet - comparing cxx1's objects against clang's needs mangling and
 # extern "C", which are rung 2.
-# The suites are told which binary, since a BINDIR build puts cxx1i.exe
-# somewhere other than here; unset, each falls back to ./cxx1i.exe.
+# The suites are told which binary, since a BINDIR build puts cpp11.exe
+# somewhere other than here; unset, each falls back to ./cpp11.exe.
 test: $(TARGET)
 	@CXX1=$(TARGET) ./tests/run.sh
 	@CXX1=$(TARGET) ./tests/emit.sh
